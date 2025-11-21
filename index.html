@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ML & Architecture Article Hub</title>
+    <title>Machine Learning Architecture Hub</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -31,20 +31,23 @@
 
         // Initialize Firebase
         let db;
+        let firebaseInitialized = false;
         try {
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
+            firebaseInitialized = true;
+            console.log("✅ Firebase initialized successfully");
         } catch (e) {
-            console.log("Firebase initialization error");
+            console.error("❌ Firebase initialization error:", e);
         }
 
         const DELETE_PASSWORD = 'delete!';
 
-        const MLArticleHub = () => {
+        const MLArchitectureHub = () => {
             const [articles, setArticles] = useState([]);
             const [view, setView] = useState('grid');
             const [sortBy, setSortBy] = useState('date-desc');
-            const [categories, setCategories] = useState(['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision']);
+            const [categories, setCategories] = useState(['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision', 'Neural Networks', 'NLP']);
             const [selectedCategory, setSelectedCategory] = useState('All Articles');
             const [searchTerm, setSearchTerm] = useState('');
             const [showNewCategory, setShowNewCategory] = useState(false);
@@ -80,11 +83,11 @@
 
             const loadArticlesFromFirebase = async () => {
                 setLoading(true);
-                setDebugInfo('Loading articles from Firebase...');
+                setDebugInfo('🔄 Loading articles from Firebase...');
                 
                 try {
-                    if (!db) {
-                        setDebugInfo('⚠️ Firebase not configured.');
+                    if (!db || !firebaseInitialized) {
+                        setDebugInfo('⚠️ Firebase not initialized. Using demo mode.');
                         setLoading(false);
                         return;
                     }
@@ -100,15 +103,16 @@
                     });
                     
                     setArticles(loadedArticles);
-                    setDebugInfo(`✅ Loaded ${loadedArticles.length} articles from Firebase`);
+                    setDebugInfo(`✅ Loaded ${loadedArticles.length} articles`);
                     
+                    // Load categories
                     const categorySnapshot = await db.collection('ml-settings').doc('categories').get();
                     if (categorySnapshot.exists) {
-                        setCategories(categorySnapshot.data().list || ['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision']);
+                        setCategories(categorySnapshot.data().list || ['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision', 'Neural Networks', 'NLP']);
                     }
                 } catch (e) {
-                    setDebugInfo(`Error: ${e.message}`);
                     console.error('Load error:', e);
+                    setDebugInfo(`❌ Error loading: ${e.message}`);
                 }
                 
                 setLoading(false);
@@ -116,85 +120,154 @@
 
             const saveArticleToFirebase = async (articleData) => {
                 try {
-                    await db.collection('ml-articles').add(articleData);
+                    console.log("Saving article:", articleData);
+                    
+                    if (!db || !firebaseInitialized) {
+                        throw new Error('Firebase not initialized');
+                    }
+                    
+                    const docRef = await db.collection('ml-articles').add(articleData);
+                    console.log("✅ Article saved with ID:", docRef.id);
+                    return docRef.id;
                 } catch (e) {
-                    console.error('Save error:', e);
+                    console.error('❌ Save error:', e);
                     throw e;
                 }
             };
 
             const updateArticleInFirebase = async (articleId, updates) => {
                 try {
+                    if (!db || !firebaseInitialized) return;
                     await db.collection('ml-articles').doc(articleId).update(updates);
+                    console.log("✅ Article updated");
                 } catch (e) {
-                    console.error('Update error:', e);
+                    console.error('❌ Update error:', e);
                 }
             };
 
             const deleteArticleFromFirebase = async (articleId) => {
                 try {
+                    if (!db || !firebaseInitialized) return;
                     await db.collection('ml-articles').doc(articleId).delete();
+                    console.log("✅ Article deleted");
                 } catch (e) {
-                    console.error('Delete error:', e);
+                    console.error('❌ Delete error:', e);
                 }
             };
 
             const saveCategoriesToFirebase = async (categoryList) => {
                 try {
+                    if (!db || !firebaseInitialized) return;
                     await db.collection('ml-settings').doc('categories').set({ list: categoryList });
+                    console.log("✅ Categories saved");
                 } catch (e) {
-                    console.error('Category save error:', e);
+                    console.error('❌ Category save error:', e);
                 }
             };
 
-            // Web search function using Bing News Search
+            // Enhanced web search with better mock data
             const searchWeb = async (query) => {
                 setSearching(true);
-                setDebugInfo(`Searching for: ${query}...`);
+                setDebugInfo(`🔍 Searching for: ${query}...`);
                 
                 try {
-                    // Using a free news aggregator API - NewsAPI alternative
-                    // Note: In production, you'd want to use a backend proxy to hide API keys
-                    const response = await fetch(
-                        `https://api.currentsapi.services/v1/search?keywords=${encodeURIComponent(query)}&language=en&apiKey=YOUR_API_KEY`
-                    );
+                    // Simulate search with more relevant results
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
                     
-                    // Since we don't have a real API key, simulate some results
-                    // In production, you would parse the actual API response
+                    const searchTopics = {
+                        'transformer': [
+                            {
+                                title: 'Attention Is All You Need - The Original Transformer Paper',
+                                description: 'Groundbreaking paper introducing the Transformer architecture that revolutionized NLP and deep learning.',
+                                url: 'https://arxiv.org/abs/1706.03762',
+                                imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
+                                source: 'ArXiv',
+                                publishedAt: new Date().toISOString()
+                            },
+                            {
+                                title: 'The Illustrated Transformer',
+                                description: 'Visual guide to understanding how transformers work with detailed explanations and diagrams.',
+                                url: 'https://jalammar.github.io/illustrated-transformer/',
+                                imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400',
+                                source: 'Blog',
+                                publishedAt: new Date().toISOString()
+                            }
+                        ],
+                        'neural': [
+                            {
+                                title: 'Neural Networks and Deep Learning',
+                                description: 'Comprehensive introduction to neural networks covering fundamentals and advanced architectures.',
+                                url: 'http://neuralnetworksanddeeplearning.com/',
+                                imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
+                                source: 'Free Online Book',
+                                publishedAt: new Date().toISOString()
+                            }
+                        ],
+                        'cnn': [
+                            {
+                                title: 'Understanding Convolutional Neural Networks',
+                                description: 'Deep dive into CNN architectures, their applications in computer vision, and best practices.',
+                                url: 'https://cs231n.github.io/',
+                                imageUrl: 'https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?w=400',
+                                source: 'Stanford CS231n',
+                                publishedAt: new Date().toISOString()
+                            }
+                        ]
+                    };
                     
-                    // Simulated results for demonstration
-                    const simulatedResults = [
-                        {
-                            title: `${query} - Latest Research and Developments`,
-                            description: `Comprehensive overview of recent advances in ${query}. Explore cutting-edge techniques and methodologies.`,
-                            url: `https://arxiv.org/search/?query=${encodeURIComponent(query)}&searchtype=all`,
-                            imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
-                            source: 'ArXiv',
-                            publishedAt: new Date().toISOString()
-                        },
-                        {
-                            title: `Understanding ${query}: A Deep Dive`,
-                            description: `Expert analysis and practical applications of ${query} in modern systems.`,
-                            url: `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
-                            imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400',
-                            source: 'Google Scholar',
-                            publishedAt: new Date().toISOString()
-                        },
-                        {
-                            title: `${query} Best Practices and Patterns`,
-                            description: `Learn from industry leaders about implementing ${query} effectively in production environments.`,
-                            url: `https://github.com/search?q=${encodeURIComponent(query)}&type=repositories`,
-                            imageUrl: 'https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?w=400',
-                            source: 'GitHub',
-                            publishedAt: new Date().toISOString()
+                    // Find relevant results or provide generic ones
+                    let results = [];
+                    const lowerQuery = query.toLowerCase();
+                    
+                    for (const [key, value] of Object.entries(searchTopics)) {
+                        if (lowerQuery.includes(key)) {
+                            results = [...results, ...value];
                         }
-                    ];
+                    }
                     
-                    setSearchResults(simulatedResults);
-                    setDebugInfo(`✅ Found ${simulatedResults.length} articles`);
+                    // If no specific matches, provide generic results
+                    if (results.length === 0) {
+                        results = [
+                            {
+                                title: `${query} - Research Papers on ArXiv`,
+                                description: `Latest research and developments in ${query}. Explore cutting-edge techniques and methodologies.`,
+                                url: `https://arxiv.org/search/?query=${encodeURIComponent(query)}&searchtype=all`,
+                                imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
+                                source: 'ArXiv',
+                                publishedAt: new Date().toISOString()
+                            },
+                            {
+                                title: `Understanding ${query}: Academic Perspective`,
+                                description: `Scholarly articles and papers about ${query} from leading researchers and institutions.`,
+                                url: `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
+                                imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400',
+                                source: 'Google Scholar',
+                                publishedAt: new Date().toISOString()
+                            },
+                            {
+                                title: `${query} - Code Examples and Implementations`,
+                                description: `Practical implementations and code repositories for ${query} from the developer community.`,
+                                url: `https://github.com/search?q=${encodeURIComponent(query)}&type=repositories`,
+                                imageUrl: 'https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?w=400',
+                                source: 'GitHub',
+                                publishedAt: new Date().toISOString()
+                            },
+                            {
+                                title: `${query} Tutorial and Best Practices`,
+                                description: `Comprehensive guides and tutorials for mastering ${query} with real-world examples.`,
+                                url: `https://www.kaggle.com/search?q=${encodeURIComponent(query)}`,
+                                imageUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400',
+                                source: 'Kaggle',
+                                publishedAt: new Date().toISOString()
+                            }
+                        ];
+                    }
+                    
+                    setSearchResults(results);
+                    setDebugInfo(`✅ Found ${results.length} articles for "${query}"`);
                 } catch (error) {
-                    setDebugInfo(`❌ Search error: ${error.message}`);
                     console.error('Search error:', error);
+                    setDebugInfo(`❌ Search error: ${error.message}`);
                 }
                 
                 setSearching(false);
@@ -202,11 +275,13 @@
 
             const addArticleFromSearch = async (result) => {
                 try {
+                    setDebugInfo(`📥 Adding article: ${result.title}...`);
+                    
                     const articleData = {
                         title: result.title,
                         url: result.url,
                         description: result.description || '',
-                        imageUrl: result.imageUrl || '',
+                        imageUrl: result.imageUrl || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
                         category: selectedCategory === 'All Articles' || selectedCategory === 'Favorites' ? 'Machine Learning' : selectedCategory,
                         favorite: false,
                         notes: [],
@@ -216,9 +291,16 @@
                     
                     await saveArticleToFirebase(articleData);
                     await loadArticlesFromFirebase();
+                    
                     setDebugInfo('✅ Article added successfully!');
+                    
+                    // Auto-close search modal after 2 seconds
+                    setTimeout(() => {
+                        setShowWebSearch(false);
+                    }, 2000);
                 } catch (error) {
-                    setDebugInfo(`❌ Error adding article: ${error.message}`);
+                    console.error('Error adding article:', error);
+                    setDebugInfo(`❌ Failed to add article: ${error.message}. Check Firebase permissions.`);
                 }
             };
 
@@ -231,6 +313,8 @@
                 }
                 
                 try {
+                    setDebugInfo('📥 Adding article...');
+                    
                     const articleData = {
                         title: newArticle.title,
                         url: newArticle.url,
@@ -257,7 +341,8 @@
                     setShowAddArticle(false);
                     setDebugInfo('✅ Article added successfully!');
                 } catch (error) {
-                    setDebugInfo(`❌ Error adding article: ${error.message}`);
+                    console.error('Error adding article:', error);
+                    setDebugInfo(`❌ Failed to add article: ${error.message}`);
                 }
             };
 
@@ -268,10 +353,14 @@
                 }
                 
                 if (confirm('Delete this article permanently?')) {
-                    await deleteArticleFromFirebase(articleId);
-                    const updatedArticles = articles.filter(a => a.id !== articleId);
-                    setArticles(updatedArticles);
-                    setDebugInfo('Article deleted');
+                    try {
+                        await deleteArticleFromFirebase(articleId);
+                        const updatedArticles = articles.filter(a => a.id !== articleId);
+                        setArticles(updatedArticles);
+                        setDebugInfo('✅ Article deleted');
+                    } catch (error) {
+                        setDebugInfo(`❌ Delete failed: ${error.message}`);
+                    }
                 }
             };
 
@@ -335,7 +424,7 @@
                     await saveCategoriesToFirebase(updatedCategories);
                     setNewCategoryName('');
                     setShowNewCategory(false);
-                    setDebugInfo('Category created');
+                    setDebugInfo('✅ Category created');
                 }
             };
 
@@ -364,7 +453,7 @@
                         setSelectedCategory('All Articles');
                     }
                     
-                    setDebugInfo('Category deleted');
+                    setDebugInfo('✅ Category deleted');
                 }
             };
 
@@ -384,7 +473,7 @@
                 }
                 
                 if (confirm(`Delete ${selectedArticles.size} selected articles permanently?`)) {
-                    setDebugInfo('Deleting articles...');
+                    setDebugInfo('🗑️ Deleting articles...');
                     
                     for (const articleId of selectedArticles) {
                         await deleteArticleFromFirebase(articleId);
@@ -393,7 +482,7 @@
                     const updatedArticles = articles.filter(a => !selectedArticles.has(a.id));
                     setArticles(updatedArticles);
                     setSelectedArticles(new Set());
-                    setDebugInfo('Articles deleted');
+                    setDebugInfo('✅ Articles deleted');
                 }
             };
 
@@ -430,11 +519,12 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `ml-articles-export-${new Date().toISOString().split('T')[0]}.json`;
+                a.download = `ml-architecture-export-${new Date().toISOString().split('T')[0]}.json`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
+                setDebugInfo('✅ Articles exported');
             };
 
             const sortArticles = (articlesToSort) => {
@@ -492,21 +582,21 @@
                                 <div className="p-6 border-b border-gray-700">
                                     <div className="flex items-center justify-between mb-4">
                                         <h2 className="text-2xl font-bold text-white">🔍 Search Articles</h2>
-                                        <button onClick={() => setShowWebSearch(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full">✕</button>
+                                        <button onClick={() => setShowWebSearch(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
                                     </div>
                                     <div className="flex gap-2">
                                         <input 
                                             type="text" 
                                             value={webSearchQuery} 
                                             onChange={(e) => setWebSearchQuery(e.target.value)}
-                                            placeholder="e.g., transformer architecture, neural networks, deep learning..."
-                                            className="flex-1 px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500"
+                                            placeholder="e.g., transformer, neural networks, CNN, deep learning..."
+                                            className="flex-1 px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
                                             onKeyPress={(e) => e.key === 'Enter' && searchWeb(webSearchQuery)}
                                         />
                                         <button 
                                             onClick={() => searchWeb(webSearchQuery)} 
                                             disabled={searching || !webSearchQuery.trim()}
-                                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl disabled:opacity-50"
+                                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl disabled:opacity-50 transition-all"
                                         >
                                             {searching ? '⏳ Searching...' : '🔍 Search'}
                                         </button>
@@ -516,8 +606,9 @@
                                 <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
                                     {searchResults.length === 0 ? (
                                         <div className="text-center py-12">
-                                            <p className="text-gray-400 text-lg">🔎 Enter a search term to find articles</p>
-                                            <p className="text-gray-500 text-sm mt-2">Try: "transformer models", "CNN architecture", "reinforcement learning"</p>
+                                            <div className="text-6xl mb-4">🔎</div>
+                                            <p className="text-gray-400 text-lg mb-2">Enter a search term to find articles</p>
+                                            <p className="text-gray-500 text-sm">Try: <span className="text-blue-400">"transformer"</span>, <span className="text-blue-400">"CNN"</span>, <span className="text-blue-400">"neural networks"</span></p>
                                         </div>
                                     ) : (
                                         <div className="space-y-4">
@@ -528,6 +619,9 @@
                                                             src={result.imageUrl} 
                                                             alt={result.title}
                                                             className="w-32 h-32 object-cover rounded-xl flex-shrink-0"
+                                                            onError={(e) => {
+                                                                e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
+                                                            }}
                                                         />
                                                         <div className="flex-1 min-w-0">
                                                             <h3 className="text-white font-bold text-lg mb-2 line-clamp-2">{result.title}</h3>
@@ -539,13 +633,13 @@
                                                                     href={result.url} 
                                                                     target="_blank" 
                                                                     rel="noopener noreferrer"
-                                                                    className="text-xs text-blue-400 hover:text-blue-300"
+                                                                    className="text-xs text-blue-400 hover:text-blue-300 transition-all"
                                                                 >
                                                                     🔗 View Source
                                                                 </a>
                                                                 <button 
                                                                     onClick={() => addArticleFromSearch(result)}
-                                                                    className="ml-auto px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-semibold rounded-lg hover:from-green-600 hover:to-green-700"
+                                                                    className="ml-auto px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-semibold rounded-lg hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
                                                                 >
                                                                     ➕ Add to Library
                                                                 </button>
@@ -568,7 +662,7 @@
                                 <div className="p-6 border-b border-gray-700">
                                     <div className="flex items-center justify-between">
                                         <h2 className="text-2xl font-bold text-white">📝 Add Article Manually</h2>
-                                        <button onClick={() => setShowAddArticle(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full">✕</button>
+                                        <button onClick={() => setShowAddArticle(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
                                     </div>
                                 </div>
                                 
@@ -580,7 +674,7 @@
                                             value={newArticle.title}
                                             onChange={(e) => setNewArticle({...newArticle, title: e.target.value})}
                                             placeholder="Article title"
-                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500"
+                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
                                             required
                                         />
                                     </div>
@@ -592,7 +686,7 @@
                                             value={newArticle.url}
                                             onChange={(e) => setNewArticle({...newArticle, url: e.target.value})}
                                             placeholder="https://..."
-                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500"
+                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
                                             required
                                         />
                                     </div>
@@ -603,7 +697,7 @@
                                             value={newArticle.description}
                                             onChange={(e) => setNewArticle({...newArticle, description: e.target.value})}
                                             placeholder="Brief description or summary..."
-                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 h-24"
+                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 h-24 transition-all"
                                         />
                                     </div>
                                     
@@ -614,7 +708,7 @@
                                             value={newArticle.imageUrl}
                                             onChange={(e) => setNewArticle({...newArticle, imageUrl: e.target.value})}
                                             placeholder="https://... (will use default if empty)"
-                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500"
+                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
                                         />
                                     </div>
                                     
@@ -623,7 +717,7 @@
                                         <select 
                                             value={newArticle.category}
                                             onChange={(e) => setNewArticle({...newArticle, category: e.target.value})}
-                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none"
+                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none transition-all"
                                         >
                                             {categories.map(cat => (
                                                 <option key={cat} value={cat}>{cat}</option>
@@ -634,14 +728,14 @@
                                     <div className="flex gap-3 pt-4">
                                         <button 
                                             type="submit"
-                                            className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700"
+                                            className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all"
                                         >
                                             ➕ Add Article
                                         </button>
                                         <button 
                                             type="button"
                                             onClick={() => setShowAddArticle(false)}
-                                            className="px-6 py-3 bg-gray-700 text-white font-semibold rounded-xl hover:bg-gray-600"
+                                            className="px-6 py-3 bg-gray-700 text-white font-semibold rounded-xl hover:bg-gray-600 transition-all"
                                         >
                                             Cancel
                                         </button>
@@ -657,9 +751,9 @@
                             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
                                 <div>
                                     <h1 className="text-3xl md:text-4xl font-bold text-white flex items-center gap-3">
-                                        🧠 ML & Architecture Hub
+                                        🧠 Machine Learning Architecture Hub
                                     </h1>
-                                    <p className="text-blue-400 mt-1 font-medium">Your curated collection of AI & ML articles</p>
+                                    <p className="text-blue-400 mt-1 font-medium">Your curated collection of ML & AI articles</p>
                                 </div>
                                 <div className="flex gap-2 flex-wrap">
                                     <button 
@@ -691,7 +785,11 @@
                             </div>
 
                             {debugInfo && (
-                                <div className="mb-4 p-4 bg-blue-500/20 text-blue-200 border border-blue-500/30 rounded-2xl backdrop-blur-sm">
+                                <div className={`mb-4 p-4 border rounded-2xl backdrop-blur-sm ${
+                                    debugInfo.includes('❌') ? 'bg-red-500/20 text-red-200 border-red-500/30' :
+                                    debugInfo.includes('⚠️') ? 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30' :
+                                    'bg-blue-500/20 text-blue-200 border-blue-500/30'
+                                }`}>
                                     <span className="font-semibold">{debugInfo}</span>
                                 </div>
                             )}
@@ -702,7 +800,7 @@
                                     value={searchTerm} 
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     placeholder="🔎 Search articles..."
-                                    className="flex-1 px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium focus:border-blue-500"
+                                    className="flex-1 px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium focus:border-blue-500 transition-all"
                                 />
                                 <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium">
                                     <option value="date-desc">🆕 Newest First</option>
@@ -767,8 +865,8 @@
                                             className="px-3 py-2 text-sm bg-gray-800/80 text-white border border-blue-500/50 outline-none w-36 rounded-xl backdrop-blur-sm shadow-lg font-medium"
                                             onKeyPress={(e) => e.key === 'Enter' && createCategory()}
                                         />
-                                        <button onClick={createCategory} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:from-blue-600 hover:to-purple-700 rounded-full shadow-lg">+ Add</button>
-                                        <button onClick={() => setShowNewCategory(false)} className="px-4 py-2 bg-gray-700 text-white text-sm hover:bg-gray-600 rounded-full shadow-lg">Cancel</button>
+                                        <button onClick={createCategory} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:from-blue-600 hover:to-purple-700 rounded-full shadow-lg transition-all">+ Add</button>
+                                        <button onClick={() => setShowNewCategory(false)} className="px-4 py-2 bg-gray-700 text-white text-sm hover:bg-gray-600 rounded-full shadow-lg transition-all">Cancel</button>
                                     </div>
                                 ) : (
                                     <button 
@@ -792,6 +890,9 @@
                                     <button onClick={deleteSelected} className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 text-sm font-semibold rounded-full transition-all shadow-lg">
                                         🗑️ Delete
                                     </button>
+                                    <button onClick={() => setSelectedArticles(new Set())} className="px-4 py-2 bg-gray-700 text-white hover:bg-gray-600 text-sm font-semibold rounded-full transition-all shadow-lg">
+                                        Clear Selection
+                                    </button>
                                 </div>
                             </div>
                         )}
@@ -802,16 +903,16 @@
                                 <div className="text-7xl mb-6 opacity-50">📚</div>
                                 <h3 className="text-3xl font-bold text-white mb-3">No Articles Yet</h3>
                                 <p className="text-blue-400 text-lg font-medium mb-6">Start building your knowledge base!</p>
-                                <div className="flex gap-3 justify-center">
+                                <div className="flex gap-3 justify-center flex-wrap">
                                     <button 
                                         onClick={() => setShowWebSearch(true)}
-                                        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700"
+                                        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg"
                                     >
                                         🔍 Search Articles
                                     </button>
                                     <button 
                                         onClick={() => setShowAddArticle(true)}
-                                        className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-xl hover:from-green-600 hover:to-green-700"
+                                        className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-xl hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
                                     >
                                         ➕ Add Manually
                                     </button>
@@ -822,7 +923,14 @@
                                 {filteredArticles.map(article => (
                                     <div key={article.id} className={`bg-gradient-to-br from-gray-900/90 to-gray-800/90 border overflow-hidden rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.02] ${selectedArticles.has(article.id) ? 'ring-4 ring-blue-500 border-blue-500/50' : 'border-gray-700/50'}`}>
                                         <div className="relative aspect-video">
-                                            <img src={article.imageUrl} alt={article.title} className="w-full h-full object-cover"/>
+                                            <img 
+                                                src={article.imageUrl} 
+                                                alt={article.title} 
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
+                                                }}
+                                            />
                                             <input type="checkbox" checked={selectedArticles.has(article.id)} onChange={() => toggleArticleSelection(article.id)} className="absolute top-3 left-3 w-6 h-6 cursor-pointer rounded-md accent-blue-500"/>
                                             <button onClick={() => toggleFavorite(article.id)} className="absolute top-3 right-3 w-10 h-10 bg-black/60 hover:bg-black/80 backdrop-blur-sm rounded-full flex items-center justify-center text-xl transition-all shadow-lg">
                                                 {article.favorite ? '⭐' : '☆'}
@@ -933,7 +1041,14 @@
                                 {filteredArticles.map(article => (
                                     <div key={article.id} className={`bg-gradient-to-br from-gray-900/90 to-gray-800/90 border flex items-center p-4 rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.01] ${selectedArticles.has(article.id) ? 'ring-4 ring-blue-500 border-blue-500/50' : 'border-gray-700/50'}`}>
                                         <input type="checkbox" checked={selectedArticles.has(article.id)} onChange={() => toggleArticleSelection(article.id)} className="w-6 h-6 mr-4 flex-shrink-0 cursor-pointer rounded-md accent-blue-500"/>
-                                        <img src={article.imageUrl} alt={article.title} className="w-32 h-20 object-cover flex-shrink-0 rounded-xl shadow-lg"/>
+                                        <img 
+                                            src={article.imageUrl} 
+                                            alt={article.title} 
+                                            className="w-32 h-20 object-cover flex-shrink-0 rounded-xl shadow-lg"
+                                            onError={(e) => {
+                                                e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
+                                            }}
+                                        />
                                         <div className="flex-1 ml-4 min-w-0">
                                             <p className="font-bold text-white truncate text-lg">{article.title}</p>
                                             <p className="text-sm text-gray-300 truncate">{article.description}</p>
@@ -966,11 +1081,23 @@
                             </div>
                         )}
                     </div>
+                    
+                    {/* Footer */}
+                    <div className="max-w-7xl mx-auto px-4 py-8 text-center">
+                        <p className="text-gray-500 text-sm">
+                            🧠 Machine Learning Architecture Hub • Built with React & Firebase
+                        </p>
+                        {!firebaseInitialized && (
+                            <p className="text-yellow-400 text-xs mt-2">
+                                ⚠️ Firebase not connected - Check console for errors
+                            </p>
+                        )}
+                    </div>
                 </div>
             );
         };
 
-        ReactDOM.render(<MLArticleHub />, document.getElementById('root'));
+        ReactDOM.render(<MLArchitectureHub />, document.getElementById('root'));
     </script>
 </body>
 </html>
