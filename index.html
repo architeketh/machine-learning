@@ -120,11 +120,6 @@
                 }
             };
 
-            const verifyDeletePassword = () => {
-                const password = prompt('Enter password to delete:');
-                return password === DELETE_PASSWORD;
-            };
-
             const loadArticlesFromFirebase = async () => {
                 setLoading(true);
                 setDebugInfo('🔄 Loading articles from Firebase...');
@@ -391,8 +386,8 @@
             };
 
             const deleteSingleArticle = async (articleId) => {
-                if (!verifyDeletePassword()) {
-                    alert('Incorrect password');
+                if (!user) {
+                    alert('Please sign in to delete articles');
                     return;
                 }
                 
@@ -444,8 +439,8 @@
             };
 
             const deleteNote = async (articleId, noteId) => {
-                if (!verifyDeletePassword()) {
-                    alert('Incorrect password');
+                if (!user) {
+                    alert('Please sign in to delete notes');
                     return;
                 }
                 
@@ -473,8 +468,8 @@
             };
 
             const deleteCategory = async (categoryName) => {
-                if (!verifyDeletePassword()) {
-                    alert('Incorrect password');
+                if (!user) {
+                    alert('Please sign in to delete categories');
                     return;
                 }
                 
@@ -511,8 +506,8 @@
             };
 
             const deleteSelected = async () => {
-                if (!verifyDeletePassword()) {
-                    alert('Incorrect password');
+                if (!user) {
+                    alert('Please sign in to delete articles');
                     return;
                 }
                 
@@ -1077,12 +1072,14 @@
                                                                     <span className="text-blue-400 text-xs font-medium">
                                                                         {new Date(note.date).toLocaleDateString()}
                                                                     </span>
-                                                                    <button 
-                                                                        onClick={() => deleteNote(article.id, note.id)} 
-                                                                        className="text-red-400 hover:text-red-300 w-5 h-5 flex items-center justify-center rounded-full bg-gray-800/50 hover:bg-red-500/20 transition-all"
-                                                                    >
-                                                                        ✕
-                                                                    </button>
+                                                                    {user && (
+                                                                        <button 
+                                                                            onClick={() => deleteNote(article.id, note.id)} 
+                                                                            className="text-red-400 hover:text-red-300 w-5 h-5 flex items-center justify-center rounded-full bg-gray-800/50 hover:bg-red-500/20 transition-all"
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                                 <p className="text-white text-sm leading-relaxed">{note.text}</p>
                                                             </div>
@@ -1092,22 +1089,30 @@
                                                     )}
                                                 </div>
                                                 
-                                                <div className="flex gap-2">
-                                                    <input 
-                                                        type="text" 
-                                                        value={showNotes === article.id ? newNote : ''} 
-                                                        onChange={(e) => setNewNote(e.target.value)}
-                                                        placeholder="Add a note or highlight..." 
-                                                        className="flex-1 px-3 py-2 text-xs bg-gray-900/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md focus:border-blue-500/50 transition-all"
-                                                        onKeyPress={(e) => e.key === 'Enter' && addNote(article.id)}
-                                                    />
-                                                    <button 
-                                                        onClick={() => addNote(article.id)} 
-                                                        className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-xs hover:from-blue-600 hover:to-purple-700 rounded-xl font-semibold shadow-md transition-all"
-                                                    >
-                                                        ➕
-                                                    </button>
-                                                </div>
+                                                {user && (
+                                                    <div className="flex gap-2">
+                                                        <input 
+                                                            type="text" 
+                                                            value={showNotes === article.id ? newNote : ''} 
+                                                            onChange={(e) => setNewNote(e.target.value)}
+                                                            placeholder="Add a note or highlight..." 
+                                                            className="flex-1 px-3 py-2 text-xs bg-gray-900/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md focus:border-blue-500/50 transition-all"
+                                                            onKeyPress={(e) => e.key === 'Enter' && addNote(article.id)}
+                                                        />
+                                                        <button 
+                                                            onClick={() => addNote(article.id)} 
+                                                            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-xs hover:from-blue-600 hover:to-purple-700 rounded-xl font-semibold shadow-md transition-all"
+                                                        >
+                                                            ➕
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                
+                                                {!user && (
+                                                    <p className="text-gray-400 text-xs text-center mt-2">
+                                                        🔐 Sign in to add notes
+                                                    </p>
+                                                )}
                                             </div>
                                         )}
                                     </div>
