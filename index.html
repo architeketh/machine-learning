@@ -67,6 +67,15 @@
             const [searching, setSearching] = useState(false);
             const [user, setUser] = useState(null);
             const [authLoading, setAuthLoading] = useState(true);
+            const [showSourceManager, setShowSourceManager] = useState(false);
+            const [customSources, setCustomSources] = useState([
+                { name: 'ArXiv', url: 'https://arxiv.org/search/?query=', icon: '📄' },
+                { name: 'Google Scholar', url: 'https://scholar.google.com/scholar?q=', icon: '🎓' },
+                { name: 'GitHub', url: 'https://github.com/search?q=', icon: '💻' },
+                { name: 'Papers with Code', url: 'https://paperswithcode.com/search?q=', icon: '📊' },
+                { name: 'Kaggle', url: 'https://www.kaggle.com/search?q=', icon: '🏆' }
+            ]);
+            const [newSource, setNewSource] = useState({ name: '', url: '', icon: '🔗' });
             
             // Form for manual article entry
             const [newArticle, setNewArticle] = useState({
@@ -79,6 +88,7 @@
 
             useEffect(() => {
                 loadArticlesFromFirebase();
+                loadCustomSources();
                 
                 // Set up authentication state listener
                 if (auth) {
@@ -98,6 +108,61 @@
                     setAuthLoading(false);
                 }
             }, []);
+
+            const loadCustomSources = async () => {
+                try {
+                    if (!db || !firebaseInitialized) return;
+                    
+                    const sourceDoc = await db.collection('ml-settings').doc('sources').get();
+                    if (sourceDoc.exists && sourceDoc.data().list) {
+                        setCustomSources(sourceDoc.data().list);
+                    }
+                } catch (e) {
+                    console.error('Error loading sources:', e);
+                }
+            };
+
+            const saveCustomSources = async (sources) => {
+                try {
+                    if (!db || !firebaseInitialized) return;
+                    await db.collection('ml-settings').doc('sources').set({ list: sources });
+                } catch (e) {
+                    console.error('Error saving sources:', e);
+                }
+            };
+
+            const addCustomSource = async () => {
+                if (!newSource.name || !newSource.url) {
+                    alert('Please provide both name and URL');
+                    return;
+                }
+                
+                const updatedSources = [...customSources, { ...newSource }];
+                setCustomSources(updatedSources);
+                await saveCustomSources(updatedSources);
+                setNewSource({ name: '', url: '', icon: '🔗' });
+                setDebugInfo('✅ Source added');
+            };
+
+            const removeCustomSource = async (index) => {
+                const updatedSources = customSources.filter((_, i) => i !== index);
+                setCustomSources(updatedSources);
+                await saveCustomSources(updatedSources);
+                setDebugInfo('✅ Source removed');
+            };
+
+            const clearSearchResults = () => {
+                setSearchResults([]);
+                setWebSearchQuery('');
+                setDebugInfo('🧹 Search cleared');
+            };
+
+            const quickSearch = (sourceName) => {
+                const source = customSources.find(s => s.name === sourceName);
+                if (source && webSearchQuery.trim()) {
+                    window.open(source.url + encodeURIComponent(webSearchQuery), '_blank');
+                }
+            };
 
             const signInWithGoogle = async () => {
                 try {
@@ -621,9 +686,21 @@
                                 <div className="p-6 border-b border-gray-700">
                                     <div className="flex items-center justify-between mb-4">
                                         <h2 className="text-2xl font-bold text-white">🔍 Search Articles</h2>
-                                        <button onClick={() => setShowWebSearch(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
+                                        <div className="flex gap-2">
+                                            {user && (
+                                                <button 
+                                                    onClick={() => setShowSourceManager(!showSourceManager)} 
+                                                    className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
+                                                    title="Manage Search Sources"
+                                                >
+                                                    ⚙️ Sources
+                                                </button>
+                                            )}
+                                            <button onClick={() => setShowWebSearch(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
+                                        </div>
                                     </div>
-                                    <div className="flex gap-2">
+                                    
+                                    <div className="flex gap-2 mb-3">
                                         <input 
                                             type="text" 
                                             value={webSearchQuery} 
@@ -639,7 +716,91 @@
                                         >
                                             {searching ? '⏳ Searching...' : '🔍 Search'}
                                         </button>
+                                        {searchResults.length > 0 && (
+                                            <button 
+                                                onClick={clearSearchResults}
+                                                className="px-4 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all"
+                                                title="Clear search results"
+                                            >
+                                                🧹 Clear
+                                            </button>
+                                        )}
                                     </div>
+                                    
+                                    {/* Quick Search Sources */}
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        <span className="text-gray-400 text-sm mr-2">Quick search:</span>
+                                        {customSources.map((source, index) => (
+                                            <button
+                                                key={index}
+                                                onClick={() => quickSearch(source.name)}
+                                                disabled={!webSearchQuery.trim()}
+                                                className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title={`Search on ${source.name}`}
+                                            >
+                                                {source.icon} {source.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    
+                                    {/* Source Manager */}
+                                    {showSourceManager && user && (
+                                        <div className="mt-4 p-4 bg-gray-700/50 rounded-xl border border-gray-600">
+                                            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+                                                <span>🔗</span> Manage Search Sources
+                                            </h3>
+                                            
+                                            <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                                                {customSources.map((source, index) => (
+                                                    <div key={index} className="flex items-center justify-between bg-gray-800/50 p-2 rounded-lg">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-2xl">{source.icon}</span>
+                                                            <div>
+                                                                <p className="text-white font-medium text-sm">{source.name}</p>
+                                                                <p className="text-gray-400 text-xs truncate max-w-xs">{source.url}</p>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => removeCustomSource(index)}
+                                                            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-all"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={newSource.icon}
+                                                    onChange={(e) => setNewSource({...newSource, icon: e.target.value})}
+                                                    placeholder="Icon"
+                                                    className="w-16 px-2 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none text-center"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={newSource.name}
+                                                    onChange={(e) => setNewSource({...newSource, name: e.target.value})}
+                                                    placeholder="Source name (e.g., ArXiv)"
+                                                    className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
+                                                />
+                                                <input
+                                                    type="url"
+                                                    value={newSource.url}
+                                                    onChange={(e) => setNewSource({...newSource, url: e.target.value})}
+                                                    placeholder="Search URL (e.g., https://arxiv.org/search/?query=)"
+                                                    className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
+                                                />
+                                                <button
+                                                    onClick={addCustomSource}
+                                                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all"
+                                                >
+                                                    ➕ Add
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                                 
                                 <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
@@ -784,6 +945,60 @@
                         </div>
                     )}
 
+                    {/* New Category Modal */}
+                    {showNewCategory && user && (
+                        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowNewCategory(false)}>
+                            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-3xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                                <div className="p-6 border-b border-gray-700">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="text-2xl font-bold text-white">📁 Create New Category</h2>
+                                        <button onClick={() => { setShowNewCategory(false); setNewCategoryName(''); }} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
+                                    </div>
+                                </div>
+                                
+                                <div className="p-6">
+                                    <label className="block text-white font-semibold mb-2">Category Name</label>
+                                    <input 
+                                        type="text" 
+                                        value={newCategoryName} 
+                                        onChange={(e) => setNewCategoryName(e.target.value)} 
+                                        placeholder="e.g., Reinforcement Learning, Computer Vision..." 
+                                        className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all mb-4"
+                                        onKeyPress={(e) => {
+                                            if (e.key === 'Enter') {
+                                                createCategory();
+                                                setShowNewCategory(false);
+                                            }
+                                        }}
+                                        autoFocus
+                                    />
+                                    
+                                    <div className="flex gap-3">
+                                        <button 
+                                            onClick={() => { createCategory(); setShowNewCategory(false); }}
+                                            disabled={!newCategoryName.trim()}
+                                            className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-semibold rounded-xl hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 transition-all"
+                                        >
+                                            ✅ Create Category
+                                        </button>
+                                        <button 
+                                            onClick={() => { setShowNewCategory(false); setNewCategoryName(''); }}
+                                            className="px-6 py-3 bg-gray-700 text-white font-semibold rounded-xl hover:bg-gray-600 transition-all"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-lg">
+                                        <p className="text-blue-200 text-sm">
+                                            💡 <strong>Tip:</strong> Create categories to organize your articles by topic, technology, or any system that works for you!
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Header */}
                     <div className="bg-gradient-to-b from-gray-900/90 to-transparent shadow-2xl border-b border-gray-700/50 backdrop-blur-lg">
                         <div className="max-w-7xl mx-auto px-4 py-6">
@@ -810,6 +1025,14 @@
                                             >
                                                 <span className="text-lg">➕</span>
                                                 Add Article
+                                            </button>
+                                            <button 
+                                                onClick={() => setShowNewCategory(true)} 
+                                                className="px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
+                                                title="Create new category"
+                                            >
+                                                <span className="text-lg">📁</span>
+                                                <span className="hidden md:inline">New Category</span>
                                             </button>
                                         </>
                                     ) : (
@@ -920,29 +1143,12 @@
                                 <div className="w-px h-6 bg-gray-600/50"></div>
                                 
                                 {user && (
-                                    <>
-                                        {showNewCategory ? (
-                                            <div className="flex gap-2">
-                                                <input 
-                                                    type="text" 
-                                                    value={newCategoryName} 
-                                                    onChange={(e) => setNewCategoryName(e.target.value)} 
-                                                    placeholder="Category name" 
-                                                    className="px-3 py-2 text-sm bg-gray-800/80 text-white border border-blue-500/50 outline-none w-36 rounded-xl backdrop-blur-sm shadow-lg font-medium"
-                                                    onKeyPress={(e) => e.key === 'Enter' && createCategory()}
-                                                />
-                                                <button onClick={createCategory} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:from-blue-600 hover:to-purple-700 rounded-full shadow-lg transition-all">+ Add</button>
-                                                <button onClick={() => setShowNewCategory(false)} className="px-4 py-2 bg-gray-700 text-white text-sm hover:bg-gray-600 rounded-full shadow-lg transition-all">Cancel</button>
-                                            </div>
-                                        ) : (
-                                            <button 
-                                                onClick={() => setShowNewCategory(true)} 
-                                                className="px-4 py-2 bg-gray-800/60 text-blue-400 hover:bg-gray-700/60 font-semibold text-sm rounded-full transition-all shadow-md"
-                                            >
-                                                ➕ New Category
-                                            </button>
-                                        )}
-                                    </>
+                                    <button 
+                                        onClick={() => setShowNewCategory(true)} 
+                                        className="px-4 py-2 bg-gray-800/60 text-blue-400 hover:bg-gray-700/60 font-semibold text-sm rounded-full transition-all shadow-md"
+                                    >
+                                        ➕ New Category
+                                    </button>
                                 )}
                             </div>
                         </div>
