@@ -21,6 +21,9 @@
         const { useState, useEffect } = React;
 
         // Firebase Configuration - ML Architecture Hub
+        // NOTE: This API key is meant to be public in Firebase web apps.
+        // Security is enforced by Firestore Security Rules, not by hiding the key.
+        // See SECURITY.md for full explanation.
         const firebaseConfig = {
             apiKey: "AIzaSyBcf2s3Dl6WR0laNjpdiEyCENvK2DEAl-c",
             authDomain: "ml-architecture-hub.firebaseapp.com",
@@ -69,11 +72,16 @@
             const [authLoading, setAuthLoading] = useState(true);
             const [showSourceManager, setShowSourceManager] = useState(false);
             const [customSources, setCustomSources] = useState([
-                { name: 'ArXiv', url: 'https://arxiv.org/search/?query=', icon: '📄' },
-                { name: 'Google Scholar', url: 'https://scholar.google.com/scholar?q=', icon: '🎓' },
-                { name: 'GitHub', url: 'https://github.com/search?q=', icon: '💻' },
-                { name: 'Papers with Code', url: 'https://paperswithcode.com/search?q=', icon: '📊' },
-                { name: 'Kaggle', url: 'https://www.kaggle.com/search?q=', icon: '🏆' }
+                { name: 'ArchDaily', url: 'https://www.archdaily.com/search/all?q=', icon: '🏛️' },
+                { name: 'Dezeen', url: 'https://www.dezeen.com/?s=', icon: '📐' },
+                { name: 'Architect Magazine', url: 'https://www.architectmagazine.com/search?q=', icon: '📰' },
+                { name: 'Architizer', url: 'https://architizer.com/search/?q=', icon: '🏗️' },
+                { name: 'Construction Dive', url: 'https://www.constructiondive.com/search/?q=', icon: '👷' },
+                { name: 'Architectural Digest', url: 'https://www.architecturaldigest.com/search?q=', icon: '🏠' },
+                { name: 'ArchitectPaper', url: 'https://www.archpaper.com/?s=', icon: '📄' },
+                { name: 'DesignBoom', url: 'https://www.designboom.com/search/?q=', icon: '💡' },
+                { name: 'YoungArchitectFeed', url: 'https://www.youngarchitectfeed.com/?s=', icon: '🎓' },
+                { name: 'Wired Magazine', url: 'https://www.wired.com/search/?q=', icon: '🤖' }
             ]);
             const [newSource, setNewSource] = useState({ name: '', url: '', icon: '🔗' });
             

@@ -4,8 +4,8 @@ A beautiful, secure web application for curating and organizing AI & Machine Lea
 
 ## ✨ Features
 
-- 🔍 **Web Search** - Search for ML & AI articles with customizable sources
-- 🔗 **Quick Search Sources** - One-click search on ArXiv, GitHub, Google Scholar, and more
+- 🔍 **Web Search** - Search for ML & Architecture articles with customizable sources
+- 🔗 **Quick Search Sources** - One-click search on Dezeen, Architect Magazine, ArchDaily, and more
 - ⚙️ **Custom Sources** - Add your own search sources with custom URLs
 - 🧹 **Clear Search** - Clear search results with one click
 - ➕ **Add Articles** - Manually add articles with URLs, descriptions, and images
@@ -176,6 +176,12 @@ Edit the Tailwind classes in `index.html`:
 
 ## 🐛 Troubleshooting
 
+### GitHub "Secret detected" warning for API key
+→ This is **safe and expected**! Firebase API keys are meant to be public.
+→ See [SECURITY.md](SECURITY.md) for full explanation
+→ You can safely dismiss the GitHub warning
+→ Security is enforced by Firestore Rules, not by hiding the key
+
 ### "Missing or insufficient permissions" error
 → Check Firestore Rules (Step 2 above) - make sure ml-settings is included
 
@@ -201,6 +207,12 @@ Edit the Tailwind classes in `index.html`:
 ### Search results not clearing
 → Click the 🧹 Clear button
 → Refresh the page if needed
+
+### GitHub "Secret Detected" Warning
+→ **This is safe!** Firebase API keys are meant to be public in web apps
+→ See [SECURITY.md](SECURITY.md) for full explanation
+→ Security is enforced by Firestore Rules, not by hiding the key
+→ You can safely dismiss the GitHub alert
 
 ## 📦 Tech Stack
 
