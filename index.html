@@ -12,6 +12,7 @@
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -19,22 +20,24 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Firebase Configuration
+        // Firebase Configuration - ML Architecture Hub
         const firebaseConfig = {
-            apiKey: "AIzaSyB2KlAV6sqWMIYH7EN8F-uGhhZO_K98oB4",
-            authDomain: "family-photo-organizer-c5632.firebaseapp.com",
-            projectId: "family-photo-organizer-c5632",
-            storageBucket: "family-photo-organizer-c5632.firebasestorage.app",
-            messagingSenderId: "911061160507",
-            appId: "1:911061160507:web:098a770fa765e7469bc21e"
+            apiKey: "AIzaSyBcf2s3Dl6WR0laNjpdiEyCENvK2DEAl-c",
+            authDomain: "ml-architecture-hub.firebaseapp.com",
+            projectId: "ml-architecture-hub",
+            storageBucket: "ml-architecture-hub.firebasestorage.app",
+            messagingSenderId: "1059343596020",
+            appId: "1:1059343596020:web:29cfaa0edf223a75f261a1"
         };
 
         // Initialize Firebase
         let db;
+        let auth;
         let firebaseInitialized = false;
         try {
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
+            auth = firebase.auth();
             firebaseInitialized = true;
             console.log("✅ Firebase initialized successfully");
         } catch (e) {
@@ -62,6 +65,8 @@
             const [webSearchQuery, setWebSearchQuery] = useState('');
             const [searchResults, setSearchResults] = useState([]);
             const [searching, setSearching] = useState(false);
+            const [user, setUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
             
             // Form for manual article entry
             const [newArticle, setNewArticle] = useState({
@@ -74,7 +79,46 @@
 
             useEffect(() => {
                 loadArticlesFromFirebase();
+                
+                // Set up authentication state listener
+                if (auth) {
+                    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+                        setUser(currentUser);
+                        setAuthLoading(false);
+                        if (currentUser) {
+                            console.log("✅ User signed in:", currentUser.email);
+                            setDebugInfo(`✅ Signed in as ${currentUser.displayName || currentUser.email}`);
+                        } else {
+                            console.log("👤 No user signed in");
+                        }
+                    });
+                    
+                    return () => unsubscribe();
+                } else {
+                    setAuthLoading(false);
+                }
             }, []);
+
+            const signInWithGoogle = async () => {
+                try {
+                    const provider = new firebase.auth.GoogleAuthProvider();
+                    await auth.signInWithPopup(provider);
+                    setDebugInfo('✅ Successfully signed in!');
+                } catch (error) {
+                    console.error('Sign in error:', error);
+                    setDebugInfo(`❌ Sign in failed: ${error.message}`);
+                }
+            };
+
+            const signOut = async () => {
+                try {
+                    await auth.signOut();
+                    setDebugInfo('👋 Signed out successfully');
+                } catch (error) {
+                    console.error('Sign out error:', error);
+                    setDebugInfo(`❌ Sign out failed: ${error.message}`);
+                }
+            };
 
             const verifyDeletePassword = () => {
                 const password = prompt('Enter password to delete:');
@@ -756,23 +800,46 @@
                                     <p className="text-blue-400 mt-1 font-medium">Your curated collection of ML & AI articles</p>
                                 </div>
                                 <div className="flex gap-2 flex-wrap">
-                                    <button 
-                                        onClick={() => setShowWebSearch(true)} 
-                                        className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
-                                    >
-                                        <span className="text-xl">🔍</span>
-                                        Search Web
-                                    </button>
-                                    <button 
-                                        onClick={() => setShowAddArticle(true)} 
-                                        className="px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
-                                    >
-                                        <span className="text-lg">➕</span>
-                                        Add Article
-                                    </button>
+                                    {user ? (
+                                        <>
+                                            <button 
+                                                onClick={() => setShowWebSearch(true)} 
+                                                className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
+                                            >
+                                                <span className="text-xl">🔍</span>
+                                                Search Web
+                                            </button>
+                                            <button 
+                                                onClick={() => setShowAddArticle(true)} 
+                                                className="px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
+                                            >
+                                                <span className="text-lg">➕</span>
+                                                Add Article
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button 
+                                            onClick={signInWithGoogle}
+                                            disabled={authLoading}
+                                            className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg disabled:opacity-50"
+                                        >
+                                            <span className="text-lg">🔐</span>
+                                            {authLoading ? 'Loading...' : 'Sign In to Add Articles'}
+                                        </button>
+                                    )}
                                     <button onClick={() => loadArticlesFromFirebase()} className="w-10 h-10 bg-gray-800/80 text-white hover:bg-gray-700 rounded-full transition-all shadow-lg flex items-center justify-center backdrop-blur-sm">
                                         🔄
                                     </button>
+                                    {user && (
+                                        <button 
+                                            onClick={signOut}
+                                            className="px-4 py-2.5 bg-gray-800/80 text-white hover:bg-gray-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg backdrop-blur-sm"
+                                            title={`Sign out (${user.email})`}
+                                        >
+                                            <span className="text-lg">👤</span>
+                                            <span className="hidden md:inline">Sign Out</span>
+                                        </button>
+                                    )}
                                     <div className="flex bg-gray-800/80 rounded-full p-1 backdrop-blur-sm shadow-lg">
                                         <button onClick={() => setView('grid')} className={`w-10 h-10 rounded-full transition-all ${view === 'grid' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>
                                             ⊞
@@ -843,38 +910,44 @@
                                         >
                                             📂 {category} ({articles.filter(a => a.category === category).length})
                                         </button>
-                                        <button 
-                                            onClick={() => deleteCategory(category)} 
-                                            className="opacity-0 group-hover:opacity-100 ml-1 w-7 h-7 flex items-center justify-center text-red-400 hover:text-red-300 text-sm bg-gray-800/60 rounded-full transition-all"
-                                            title="Delete"
-                                        >
-                                            🗑️
-                                        </button>
+                                        {user && (
+                                            <button 
+                                                onClick={() => deleteCategory(category)} 
+                                                className="opacity-0 group-hover:opacity-100 ml-1 w-7 h-7 flex items-center justify-center text-red-400 hover:text-red-300 text-sm bg-gray-800/60 rounded-full transition-all"
+                                                title="Delete"
+                                            >
+                                                🗑️
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                                 
                                 <div className="w-px h-6 bg-gray-600/50"></div>
                                 
-                                {showNewCategory ? (
-                                    <div className="flex gap-2">
-                                        <input 
-                                            type="text" 
-                                            value={newCategoryName} 
-                                            onChange={(e) => setNewCategoryName(e.target.value)} 
-                                            placeholder="Category name" 
-                                            className="px-3 py-2 text-sm bg-gray-800/80 text-white border border-blue-500/50 outline-none w-36 rounded-xl backdrop-blur-sm shadow-lg font-medium"
-                                            onKeyPress={(e) => e.key === 'Enter' && createCategory()}
-                                        />
-                                        <button onClick={createCategory} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:from-blue-600 hover:to-purple-700 rounded-full shadow-lg transition-all">+ Add</button>
-                                        <button onClick={() => setShowNewCategory(false)} className="px-4 py-2 bg-gray-700 text-white text-sm hover:bg-gray-600 rounded-full shadow-lg transition-all">Cancel</button>
-                                    </div>
-                                ) : (
-                                    <button 
-                                        onClick={() => setShowNewCategory(true)} 
-                                        className="px-4 py-2 bg-gray-800/60 text-blue-400 hover:bg-gray-700/60 font-semibold text-sm rounded-full transition-all shadow-md"
-                                    >
-                                        ➕ New Category
-                                    </button>
+                                {user && (
+                                    <>
+                                        {showNewCategory ? (
+                                            <div className="flex gap-2">
+                                                <input 
+                                                    type="text" 
+                                                    value={newCategoryName} 
+                                                    onChange={(e) => setNewCategoryName(e.target.value)} 
+                                                    placeholder="Category name" 
+                                                    className="px-3 py-2 text-sm bg-gray-800/80 text-white border border-blue-500/50 outline-none w-36 rounded-xl backdrop-blur-sm shadow-lg font-medium"
+                                                    onKeyPress={(e) => e.key === 'Enter' && createCategory()}
+                                                />
+                                                <button onClick={createCategory} className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:from-blue-600 hover:to-purple-700 rounded-full shadow-lg transition-all">+ Add</button>
+                                                <button onClick={() => setShowNewCategory(false)} className="px-4 py-2 bg-gray-700 text-white text-sm hover:bg-gray-600 rounded-full shadow-lg transition-all">Cancel</button>
+                                            </div>
+                                        ) : (
+                                            <button 
+                                                onClick={() => setShowNewCategory(true)} 
+                                                className="px-4 py-2 bg-gray-800/60 text-blue-400 hover:bg-gray-700/60 font-semibold text-sm rounded-full transition-all shadow-md"
+                                            >
+                                                ➕ New Category
+                                            </button>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -951,13 +1024,15 @@
                                                 </span>
                                             </div>
                                             
-                                            <div className="flex gap-2 mb-3">
-                                                <select value={article.category} onChange={(e) => moveToCategory(article.id, e.target.value)} className="flex-1 px-3 py-2 text-xs bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md">
-                                                    {categories.map(cat => (
-                                                        <option key={cat} value={cat}>{cat}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
+                                            {user && (
+                                                <div className="flex gap-2 mb-3">
+                                                    <select value={article.category} onChange={(e) => moveToCategory(article.id, e.target.value)} className="flex-1 px-3 py-2 text-xs bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md">
+                                                        {categories.map(cat => (
+                                                            <option key={cat} value={cat}>{cat}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
                                             
                                             <div className="flex gap-2">
                                                 <a 
@@ -980,9 +1055,11 @@
                                                         </span>
                                                     )}
                                                 </button>
-                                                <button onClick={() => deleteSingleArticle(article.id)} className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" title="Delete">
-                                                    🗑️
-                                                </button>
+                                                {user && (
+                                                    <button onClick={() => deleteSingleArticle(article.id)} className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" title="Delete">
+                                                        🗑️
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                         
@@ -1069,9 +1146,11 @@
                                             >
                                                 🔗 Read
                                             </a>
-                                            <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" title="Delete">
-                                                🗑️
-                                            </button>
+                                            {user && (
+                                                <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" title="Delete">
+                                                    🗑️
+                                                </button>
+                                            )}
                                             <button onClick={() => toggleFavorite(article.id)} className="w-10 h-10 bg-gray-800/80 hover:bg-gray-700/80 rounded-full shadow-lg flex items-center justify-center text-xl transition-all backdrop-blur-sm">
                                                 {article.favorite ? '⭐' : '☆'}
                                             </button>
