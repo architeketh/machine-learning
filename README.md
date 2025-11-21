@@ -1,6 +1,6 @@
-# 🧠 Machine Learning Architecture Hub
+# 🏗️ Architecture & AI Hub
 
-A beautiful, secure web application for curating and organizing AI & Machine Learning articles. Browse articles publicly, sign in with Google to add, edit, and manage your collection.
+A beautiful, secure web application for curating and organizing Architecture and AI articles. Browse articles publicly, sign in with Google to add, edit, and manage your collection. **Now with RSS feed integration for instant access to the latest articles!**
 
 ## ✨ Features
 

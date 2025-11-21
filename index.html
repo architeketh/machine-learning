@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Machine Learning Architecture Hub</title>
+    <title>Architecture & AI Article Hub</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -72,18 +72,22 @@
             const [authLoading, setAuthLoading] = useState(true);
             const [showSourceManager, setShowSourceManager] = useState(false);
             const [customSources, setCustomSources] = useState([
-                { name: 'ArchDaily', url: 'https://www.archdaily.com/search/all?q=', icon: '🏛️' },
-                { name: 'Dezeen', url: 'https://www.dezeen.com/?s=', icon: '📐' },
-                { name: 'Architect Magazine', url: 'https://www.architectmagazine.com/search?q=', icon: '📰' },
-                { name: 'Architizer', url: 'https://architizer.com/search/?q=', icon: '🏗️' },
-                { name: 'Construction Dive', url: 'https://www.constructiondive.com/search/?q=', icon: '👷' },
-                { name: 'Architectural Digest', url: 'https://www.architecturaldigest.com/search?q=', icon: '🏠' },
-                { name: 'ArchitectPaper', url: 'https://www.archpaper.com/?s=', icon: '📄' },
-                { name: 'DesignBoom', url: 'https://www.designboom.com/search/?q=', icon: '💡' },
-                { name: 'YoungArchitectFeed', url: 'https://www.youngarchitectfeed.com/?s=', icon: '🎓' },
-                { name: 'Wired Magazine', url: 'https://www.wired.com/search/?q=', icon: '🤖' }
+                { name: 'ArchDaily', url: 'https://www.archdaily.com/search/all?q=', icon: '🏛️', rss: 'http://feeds.feedburner.com/Archdaily' },
+                { name: 'Dezeen', url: 'https://www.dezeen.com/?s=', icon: '📐', rss: 'https://www.dezeen.com/feed/' },
+                { name: 'Architect Magazine', url: 'https://www.architectmagazine.com/search?q=', icon: '📰', rss: '' },
+                { name: 'Architizer', url: 'https://architizer.com/search/?q=', icon: '🏗️', rss: 'https://architizer.com/blog/feed/' },
+                { name: 'Construction Dive', url: 'https://www.constructiondive.com/search/?q=', icon: '👷', rss: 'https://www.constructiondive.com/feeds/news/' },
+                { name: 'Architectural Digest', url: 'https://www.architecturaldigest.com/search?q=', icon: '🏠', rss: 'https://www.architecturaldigest.com/feed/rss' },
+                { name: 'ArchitectPaper', url: 'https://www.archpaper.com/?s=', icon: '📄', rss: 'https://www.archpaper.com/feed/' },
+                { name: 'DesignBoom', url: 'https://www.designboom.com/search/?q=', icon: '💡', rss: 'https://www.designboom.com/feed/' },
+                { name: 'YoungArchitectFeed', url: 'https://www.youngarchitectfeed.com/?s=', icon: '🎓', rss: '' },
+                { name: 'Wired Magazine', url: 'https://www.wired.com/search/?q=', icon: '🤖', rss: 'https://www.wired.com/feed/rss' }
             ]);
-            const [newSource, setNewSource] = useState({ name: '', url: '', icon: '🔗' });
+            const [newSource, setNewSource] = useState({ name: '', url: '', icon: '🔗', rss: '' });
+            const [showRssFeed, setShowRssFeed] = useState(false);
+            const [rssFeedArticles, setRssFeedArticles] = useState([]);
+            const [loadingRss, setLoadingRss] = useState(false);
+            const [selectedRssSource, setSelectedRssSource] = useState(null);
             
             // Form for manual article entry
             const [newArticle, setNewArticle] = useState({
@@ -148,7 +152,7 @@
                 const updatedSources = [...customSources, { ...newSource }];
                 setCustomSources(updatedSources);
                 await saveCustomSources(updatedSources);
-                setNewSource({ name: '', url: '', icon: '🔗' });
+                setNewSource({ name: '', url: '', icon: '🔗', rss: '' });
                 setDebugInfo('✅ Source added');
             };
 
@@ -170,6 +174,61 @@
                 if (source && webSearchQuery.trim()) {
                     window.open(source.url + encodeURIComponent(webSearchQuery), '_blank');
                 }
+            };
+
+            const fetchRssFeed = async (source) => {
+                if (!source.rss) {
+                    alert(`${source.name} doesn't have an RSS feed configured`);
+                    return;
+                }
+                
+                setLoadingRss(true);
+                setSelectedRssSource(source);
+                setShowRssFeed(true);
+                setDebugInfo(`📰 Loading RSS feed from ${source.name}...`);
+                
+                try {
+                    // Using RSS2JSON API to convert RSS to JSON (free service)
+                    const response = await fetch(
+                        `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.rss)}&api_key=public&count=20`
+                    );
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch RSS feed');
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.status !== 'ok') {
+                        throw new Error(data.message || 'RSS feed error');
+                    }
+                    
+                    // Transform RSS items to our format
+                    const articles = data.items.map((item, index) => ({
+                        title: item.title,
+                        description: item.description?.replace(/<[^>]*>/g, '').substring(0, 200) + '...' || '',
+                        url: item.link,
+                        imageUrl: item.thumbnail || item.enclosure?.link || 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400',
+                        source: source.name,
+                        publishedAt: item.pubDate,
+                        author: item.author || source.name
+                    }));
+                    
+                    setRssFeedArticles(articles);
+                    setDebugInfo(`✅ Loaded ${articles.length} articles from ${source.name}`);
+                } catch (error) {
+                    console.error('RSS fetch error:', error);
+                    setDebugInfo(`❌ Failed to load RSS feed: ${error.message}`);
+                    setRssFeedArticles([]);
+                }
+                
+                setLoadingRss(false);
+            };
+
+            const closeRssFeed = () => {
+                setShowRssFeed(false);
+                setRssFeedArticles([]);
+                setSelectedRssSource(null);
             };
 
             const signInWithGoogle = async () => {
@@ -751,6 +810,27 @@
                                         ))}
                                     </div>
                                     
+                                    {/* RSS Feed Sources */}
+                                    <div className="border-t border-gray-600 pt-3">
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            <span className="text-gray-400 text-sm mr-2">📰 Latest articles:</span>
+                                            {customSources.filter(s => s.rss).map((source, index) => (
+                                                <button
+                                                    key={index}
+                                                    onClick={() => fetchRssFeed(source)}
+                                                    disabled={loadingRss}
+                                                    className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-sm rounded-lg transition-all disabled:opacity-50 font-medium shadow-md"
+                                                    title={`Load latest articles from ${source.name} RSS feed`}
+                                                >
+                                                    {source.icon} {source.name}
+                                                </button>
+                                            ))}
+                                            {customSources.filter(s => s.rss).length === 0 && (
+                                                <span className="text-gray-500 text-xs italic">No RSS feeds configured</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
                                     {/* Source Manager */}
                                     {showSourceManager && user && (
                                         <div className="mt-4 p-4 bg-gray-700/50 rounded-xl border border-gray-600">
@@ -766,6 +846,7 @@
                                                             <div>
                                                                 <p className="text-white font-medium text-sm">{source.name}</p>
                                                                 <p className="text-gray-400 text-xs truncate max-w-xs">{source.url}</p>
+                                                                {source.rss && <p className="text-green-400 text-xs">📰 RSS: {source.rss}</p>}
                                                             </div>
                                                         </div>
                                                         <button
@@ -778,7 +859,7 @@
                                                 ))}
                                             </div>
                                             
-                                            <div className="flex gap-2">
+                                            <div className="flex gap-2 flex-wrap">
                                                 <input
                                                     type="text"
                                                     value={newSource.icon}
@@ -790,14 +871,21 @@
                                                     type="text"
                                                     value={newSource.name}
                                                     onChange={(e) => setNewSource({...newSource, name: e.target.value})}
-                                                    placeholder="Source name (e.g., ArXiv)"
+                                                    placeholder="Source name (e.g., ArchDaily)"
                                                     className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
                                                 />
                                                 <input
                                                     type="url"
                                                     value={newSource.url}
                                                     onChange={(e) => setNewSource({...newSource, url: e.target.value})}
-                                                    placeholder="Search URL (e.g., https://arxiv.org/search/?query=)"
+                                                    placeholder="Search URL (e.g., https://site.com/search?q=)"
+                                                    className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
+                                                />
+                                                <input
+                                                    type="url"
+                                                    value={newSource.rss}
+                                                    onChange={(e) => setNewSource({...newSource, rss: e.target.value})}
+                                                    placeholder="RSS URL (optional)"
                                                     className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
                                                 />
                                                 <button
@@ -807,6 +895,85 @@
                                                     ➕ Add
                                                 </button>
                                             </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* RSS Feed Display */}
+                                    {showRssFeed && (
+                                        <div className="mt-4 p-4 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-xl border border-orange-500/30">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-white font-bold flex items-center gap-2">
+                                                    <span>📰</span> Latest from {selectedRssSource?.name}
+                                                </h3>
+                                                <button
+                                                    onClick={closeRssFeed}
+                                                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
+                                                >
+                                                    Close
+                                                </button>
+                                            </div>
+                                            
+                                            {loadingRss ? (
+                                                <div className="text-center py-8">
+                                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+                                                    <p className="text-white">Loading RSS feed...</p>
+                                                </div>
+                                            ) : rssFeedArticles.length === 0 ? (
+                                                <div className="text-center py-8">
+                                                    <p className="text-gray-300">No articles found in this feed.</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3 max-h-96 overflow-y-auto">
+                                                    {rssFeedArticles.map((article, index) => (
+                                                        <div key={index} className="bg-gray-800/80 rounded-xl p-3 border border-gray-600 hover:border-orange-500 transition-all">
+                                                            <div className="flex gap-3">
+                                                                <img 
+                                                                    src={article.imageUrl} 
+                                                                    alt={article.title}
+                                                                    className="w-24 h-24 object-cover rounded-lg flex-shrink-0"
+                                                                    onError={(e) => {
+                                                                        e.target.src = 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400';
+                                                                    }}
+                                                                />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <h4 className="text-white font-semibold text-sm mb-1 line-clamp-2">{article.title}</h4>
+                                                                    <p className="text-gray-300 text-xs mb-2 line-clamp-2">{article.description}</p>
+                                                                    <div className="flex items-center gap-3 flex-wrap text-xs">
+                                                                        <span className="text-gray-400">
+                                                                            {new Date(article.publishedAt).toLocaleDateString()}
+                                                                        </span>
+                                                                        <a 
+                                                                            href={article.url} 
+                                                                            target="_blank" 
+                                                                            rel="noopener noreferrer"
+                                                                            className="text-orange-400 hover:text-orange-300"
+                                                                        >
+                                                                            🔗 Read Article
+                                                                        </a>
+                                                                        {user && (
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    addArticleFromSearch({
+                                                                                        title: article.title,
+                                                                                        url: article.url,
+                                                                                        description: article.description,
+                                                                                        imageUrl: article.imageUrl,
+                                                                                        source: article.source,
+                                                                                        publishedAt: article.publishedAt
+                                                                                    });
+                                                                                }}
+                                                                                className="ml-auto px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-all"
+                                                                            >
+                                                                                ➕ Add to Library
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -1013,9 +1180,9 @@
                             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
                                 <div>
                                     <h1 className="text-3xl md:text-4xl font-bold text-white flex items-center gap-3">
-                                        🧠 Machine Learning Architecture Hub
+                                        🏗️ Architecture & AI Hub
                                     </h1>
-                                    <p className="text-blue-400 mt-1 font-medium">Your curated collection of ML & AI articles</p>
+                                    <p className="text-blue-400 mt-1 font-medium">Your curated collection of Architecture & AI articles</p>
                                 </div>
                                 <div className="flex gap-2 flex-wrap">
                                     {user ? (
