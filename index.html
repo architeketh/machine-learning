@@ -169,152 +169,168 @@
                 setDebugInfo('🧹 Search cleared');
             };
 
-            const fetchRssFeed = async (source) => {
+            const fetchRssFeed = async (source, skipLoading = false) => {
                 if (!source.rss) {
                     alert(`${source.name} doesn't have an RSS feed configured`);
-                    return;
+                    return { success: false, articles: [] };
                 }
                 
-                setLoadingRss(true);
-                setSelectedRssSource(source);
-                setShowRssFeed(true);
-                setDebugInfo(`📰 Loading RSS feed from ${source.name}...`);
+                if (!skipLoading) {
+                    setLoadingRss(true);
+                    setSelectedRssSource(source);
+                    setShowRssFeed(true);
+                    setDebugInfo(`📰 Loading RSS feed from ${source.name}...`);
+                }
                 
                 try {
-                    // Try multiple RSS to JSON services for reliability
-                    let data = null;
-                    let error = null;
+                    // Method 1: Try RSS2JSON API (most reliable for RSS parsing)
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
                     
-                    // Try RSS2JSON first (with higher count)
+                    let response;
                     try {
-                        const response = await fetch(
-                            `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.rss)}&count=50`
+                        response = await fetch(
+                            `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.rss)}&count=50&api_key=public`,
+                            { 
+                                signal: controller.signal,
+                                mode: 'cors'
+                            }
                         );
-                        
-                        if (response.ok) {
-                            data = await response.json();
-                            if (data.status === 'ok' && data.items && data.items.length > 0) {
-                                console.log(`✅ RSS2JSON returned ${data.items.length} items`);
-                            } else {
-                                throw new Error('No items in RSS2JSON response');
-                            }
-                        } else {
-                            throw new Error(`RSS2JSON failed with status ${response.status}`);
-                        }
-                    } catch (e) {
-                        console.warn('RSS2JSON failed, trying alternative:', e);
-                        error = e;
-                        
-                        // Try alternative service: AllOrigins as a CORS proxy to fetch RSS directly
-                        try {
-                            const response = await fetch(
-                                `https://api.allorigins.win/get?url=${encodeURIComponent(source.rss)}`
-                            );
-                            
-                            if (response.ok) {
-                                const result = await response.json();
-                                // Parse the XML from the response
-                                const parser = new DOMParser();
-                                const xmlDoc = parser.parseFromString(result.contents, 'text/xml');
-                                
-                                // Check for RSS or Atom format
-                                const items = xmlDoc.querySelectorAll('item, entry');
-                                
-                                if (items.length > 0) {
-                                    data = {
-                                        status: 'ok',
-                                        items: Array.from(items).slice(0, 50).map(item => {
-                                            // Handle both RSS and Atom formats
-                                            const getTextContent = (tag) => {
-                                                const el = item.querySelector(tag);
-                                                return el ? el.textContent : '';
-                                            };
-                                            
-                                            const getAttr = (tag, attr) => {
-                                                const el = item.querySelector(tag);
-                                                return el ? el.getAttribute(attr) : '';
-                                            };
-                                            
-                                            return {
-                                                title: getTextContent('title'),
-                                                description: getTextContent('description') || getTextContent('summary') || getTextContent('content'),
-                                                link: getTextContent('link') || getAttr('link[rel="alternate"]', 'href'),
-                                                pubDate: getTextContent('pubDate') || getTextContent('published') || getTextContent('updated'),
-                                                author: getTextContent('author') || getTextContent('creator') || source.name,
-                                                thumbnail: getAttr('media\\:thumbnail, thumbnail', 'url') || 
-                                                          getAttr('enclosure[type^="image"]', 'url') || '',
-                                                enclosure: {
-                                                    link: getAttr('enclosure', 'url')
-                                                }
-                                            };
-                                        })
-                                    };
-                                    console.log(`✅ AllOrigins returned ${data.items.length} items`);
-                                } else {
-                                    throw new Error('No items found in RSS feed');
-                                }
-                            }
-                        } catch (e2) {
-                            console.error('AllOrigins also failed:', e2);
-                            throw new Error(`All RSS services failed. Last error: ${e2.message}`);
-                        }
+                    } catch (fetchError) {
+                        throw new Error(`Network error: ${fetchError.message}. RSS2JSON may be blocked by browser or network.`);
                     }
                     
-                    if (!data || !data.items || data.items.length === 0) {
-                        throw new Error('No articles found in RSS feed');
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: Server error from RSS2JSON`);
                     }
+                    
+                    const data = await response.json();
+                    
+                    if (data.status !== 'ok') {
+                        throw new Error(data.message || `RSS2JSON error: ${JSON.stringify(data)}`);
+                    }
+                    
+                    if (!data.items || data.items.length === 0) {
+                        throw new Error('RSS feed is empty or returned no articles');
+                    }
+                    
+                    console.log(`✅ RSS2JSON returned ${data.items.length} items from ${source.name}`);
                     
                     // Get current date for filtering - extend to last 60 days
                     const now = new Date();
                     const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
                     
-                    // Transform RSS items to our format and filter by date
-                    const articles = data.items
-                        .map((item, index) => {
-                            const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
-                            
-                            return {
-                                title: item.title || 'Untitled',
-                                description: item.description?.replace(/<[^>]*>/g, '').substring(0, 200) + '...' || 'No description available',
-                                url: item.link || '#',
-                                imageUrl: item.thumbnail || item.enclosure?.link || 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400',
-                                source: source.name,
-                                publishedAt: item.pubDate || new Date().toISOString(),
-                                author: item.author || source.name,
-                                pubDate: pubDate
-                            };
-                        })
-                        .filter(article => article.pubDate >= sixtyDaysAgo) // Only show articles from last 60 days
-                        .sort((a, b) => b.pubDate - a.pubDate); // Sort newest first
-                    
-                    setRssFeedArticles(articles);
-                    
-                    if (articles.length === 0) {
-                        setDebugInfo(`⚠️ Found ${data.items.length} total articles, but none from the last 60 days. Showing all available articles instead.`);
-                        // If no articles in last 60 days, show all articles
-                        const allArticles = data.items.map((item, index) => ({
+                    // Transform RSS items to our format
+                    const allArticles = data.items.map((item) => {
+                        const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
+                        
+                        return {
                             title: item.title || 'Untitled',
-                            description: item.description?.replace(/<[^>]*>/g, '').substring(0, 200) + '...' || 'No description available',
-                            url: item.link || '#',
+                            description: (item.description || item.content || '')
+                                .replace(/<[^>]*>/g, '')
+                                .substring(0, 200) + '...' || 'No description available',
+                            url: item.link || item.guid || '#',
                             imageUrl: item.thumbnail || item.enclosure?.link || 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400',
                             source: source.name,
                             publishedAt: item.pubDate || new Date().toISOString(),
                             author: item.author || source.name,
-                            pubDate: item.pubDate ? new Date(item.pubDate) : new Date()
-                        })).sort((a, b) => b.pubDate - a.pubDate);
-                        setRssFeedArticles(allArticles);
-                        setDebugInfo(`✅ Loaded ${allArticles.length} articles from ${source.name} (all available)`);
-                    } else {
-                        setDebugInfo(`✅ Loaded ${articles.length} articles from ${source.name} (last 60 days)`);
+                            pubDate: pubDate
+                        };
+                    });
+                    
+                    // Filter by date and sort newest first
+                    const recentArticles = allArticles
+                        .filter(article => article.pubDate >= sixtyDaysAgo)
+                        .sort((a, b) => b.pubDate - a.pubDate);
+                    
+                    const articlesToShow = recentArticles.length > 0 ? recentArticles : allArticles.sort((a, b) => b.pubDate - a.pubDate);
+                    
+                    if (!skipLoading) {
+                        setRssFeedArticles(articlesToShow);
+                        
+                        if (recentArticles.length === 0) {
+                            setDebugInfo(`✅ Loaded ${articlesToShow.length} articles from ${source.name} (all available - none in last 60 days)`);
+                        } else {
+                            setDebugInfo(`✅ Loaded ${articlesToShow.length} articles from ${source.name} (last 60 days)`);
+                        }
                     }
                     
+                    return { success: true, articles: articlesToShow, source: source.name };
+                    
                 } catch (error) {
-                    console.error('RSS fetch error:', error);
-                    setDebugInfo(`❌ Failed to load RSS feed: ${error.message}`);
-                    setRssFeedArticles([]);
+                    console.error(`RSS fetch error for ${source.name}:`, error);
+                    
+                    if (!skipLoading) {
+                        let errorMsg = error.message;
+                        
+                        if (error.name === 'AbortError') {
+                            errorMsg = 'Request timed out. The RSS feed may be slow or unavailable.';
+                        } else if (error.message.includes('Network error') || error.message.includes('Failed to fetch')) {
+                            errorMsg = 'Network blocked. Try: 1) Disable browser extensions 2) Check if RSS2JSON.com is accessible 3) Try a different network';
+                        }
+                        
+                        setDebugInfo(`❌ ${source.name}: ${errorMsg}`);
+                        setRssFeedArticles([]);
+                    }
+                    
+                    return { success: false, articles: [], source: source.name, error: error.message };
+                }
+                finally {
+                    if (!skipLoading) {
+                        setLoadingRss(false);
+                    }
+                }
+            };
+
+            const fetchAllRssFeeds = async () => {
+                const sourcesWithRss = customSources.filter(s => s.rss);
+                
+                if (sourcesWithRss.length === 0) {
+                    alert('No RSS feeds configured');
+                    return;
                 }
                 
+                setLoadingRss(true);
+                setShowRssFeed(true);
+                setSelectedRssSource({ name: 'All Sources', icon: '🌐' });
+                setDebugInfo(`📰 Fetching articles from ${sourcesWithRss.length} RSS feeds...`);
+                
+                const allArticles = [];
+                const results = {
+                    successful: [],
+                    failed: []
+                };
+                
+                // Fetch all feeds in parallel
+                const promises = sourcesWithRss.map(source => fetchRssFeed(source, true));
+                const responses = await Promise.all(promises);
+                
+                // Collect all articles and track results
+                responses.forEach(response => {
+                    if (response.success) {
+                        allArticles.push(...response.articles);
+                        results.successful.push(response.source);
+                    } else {
+                        results.failed.push({ source: response.source, error: response.error });
+                    }
+                });
+                
+                // Sort all articles by date
+                allArticles.sort((a, b) => b.pubDate - a.pubDate);
+                
+                setRssFeedArticles(allArticles);
                 setLoadingRss(false);
+                
+                // Create detailed status message
+                let statusMsg = `✅ Loaded ${allArticles.length} articles from ${results.successful.length}/${sourcesWithRss.length} feeds`;
+                if (results.failed.length > 0) {
+                    statusMsg += `\n⚠️ Failed: ${results.failed.map(f => f.source).join(', ')}`;
+                }
+                setDebugInfo(statusMsg);
+                
+                console.log('Fetch All Results:', results);
             };
 
             const closeRssFeed = () => {
@@ -890,6 +906,16 @@
                                     <div className="border-t border-gray-600 pt-3">
                                         <div className="flex flex-wrap gap-2 items-center">
                                             <span className="text-gray-400 text-sm mr-2">📰 Browse latest from:</span>
+                                            {customSources.filter(s => s.rss).length > 0 && (
+                                                <button
+                                                    onClick={fetchAllRssFeeds}
+                                                    disabled={loadingRss}
+                                                    className="px-4 py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-sm rounded-lg transition-all disabled:opacity-50 font-bold shadow-lg border-2 border-green-400"
+                                                    title="Fetch articles from ALL RSS feeds at once"
+                                                >
+                                                    🌐 Fetch All ({customSources.filter(s => s.rss).length} feeds)
+                                                </button>
+                                            )}
                                             {customSources.filter(s => s.rss).map((source, index) => (
                                                 <button
                                                     key={index}
@@ -979,7 +1005,10 @@
                                         <div className="mt-4 p-4 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-xl border border-orange-500/30">
                                             <div className="flex items-center justify-between mb-3">
                                                 <h3 className="text-white font-bold flex items-center gap-2">
-                                                    <span>📰</span> Latest from {selectedRssSource?.name}
+                                                    <span>{selectedRssSource?.icon || '📰'}</span> 
+                                                    {selectedRssSource?.name === 'All Sources' 
+                                                        ? `Latest from All Sources (${rssFeedArticles.length} articles)` 
+                                                        : `Latest from ${selectedRssSource?.name}`}
                                                 </h3>
                                                 <button
                                                     onClick={closeRssFeed}
@@ -996,7 +1025,18 @@
                                                 </div>
                                             ) : rssFeedArticles.length === 0 ? (
                                                 <div className="text-center py-8">
-                                                    <p className="text-gray-300">No articles found in this feed.</p>
+                                                    <p className="text-gray-300 mb-4">No articles found in this feed.</p>
+                                                    <div className="p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-left">
+                                                        <p className="text-yellow-200 text-sm font-bold mb-2">🔧 Troubleshooting Tips:</p>
+                                                        <ul className="text-yellow-100 text-xs space-y-1 list-disc list-inside">
+                                                            <li>Check if the RSS feed URL is correct</li>
+                                                            <li>Try disabling browser extensions (especially ad blockers)</li>
+                                                            <li>Check browser console (F12) for specific errors</li>
+                                                            <li>Some networks/firewalls may block RSS2JSON.com</li>
+                                                            <li>Try accessing from a different network or device</li>
+                                                            <li>Use "Fetch All" to try multiple feeds at once</li>
+                                                        </ul>
+                                                    </div>
                                                 </div>
                                             ) : (
                                                 <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -1015,6 +1055,11 @@
                                                                     <h4 className="text-white font-semibold text-sm mb-1 line-clamp-2">{article.title}</h4>
                                                                     <p className="text-gray-300 text-xs mb-2 line-clamp-2">{article.description}</p>
                                                                     <div className="flex items-center gap-3 flex-wrap text-xs">
+                                                                        {selectedRssSource?.name === 'All Sources' && (
+                                                                            <span className="px-2 py-0.5 bg-blue-500/30 text-blue-300 rounded-full font-medium">
+                                                                                {article.source}
+                                                                            </span>
+                                                                        )}
                                                                         <span className="text-gray-400">
                                                                             {new Date(article.publishedAt).toLocaleDateString()}
                                                                         </span>
