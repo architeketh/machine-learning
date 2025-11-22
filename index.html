@@ -169,6 +169,63 @@
                 setDebugInfo('🧹 Search cleared');
             };
 
+            const parseRssXml = (xmlString, source) => {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
+                
+                // Check for parsing errors
+                const parseError = xmlDoc.querySelector('parsererror');
+                if (parseError) {
+                    throw new Error('Invalid XML format');
+                }
+                
+                // Try RSS format first
+                let items = xmlDoc.querySelectorAll('item');
+                
+                // If no items, try Atom format
+                if (items.length === 0) {
+                    items = xmlDoc.querySelectorAll('entry');
+                }
+                
+                if (items.length === 0) {
+                    throw new Error('No articles found in feed');
+                }
+                
+                const articles = Array.from(items).map(item => {
+                    const getTextContent = (selectors) => {
+                        for (const selector of selectors) {
+                            const el = item.querySelector(selector);
+                            if (el) return el.textContent;
+                        }
+                        return '';
+                    };
+                    
+                    const getAttr = (selector, attr) => {
+                        const el = item.querySelector(selector);
+                        return el ? el.getAttribute(attr) : '';
+                    };
+                    
+                    const title = getTextContent(['title']);
+                    const description = getTextContent(['description', 'summary', 'content', 'content\\:encoded']);
+                    const link = getTextContent(['link']) || getAttr('link[rel="alternate"]', 'href');
+                    const pubDate = getTextContent(['pubDate', 'published', 'updated', 'dc\\:date']);
+                    const thumbnail = getAttr('media\\:thumbnail', 'url') || 
+                                    getAttr('media\\:content', 'url') ||
+                                    getAttr('enclosure[type^="image"]', 'url');
+                    
+                    return {
+                        title: title || 'Untitled',
+                        description: description.replace(/<[^>]*>/g, '').substring(0, 200) + '...' || 'No description',
+                        link: link || '#',
+                        pubDate: pubDate || new Date().toISOString(),
+                        thumbnail: thumbnail,
+                        author: getTextContent(['author', 'dc\\:creator']) || source.name
+                    };
+                });
+                
+                return articles;
+            };
+
             const fetchRssFeed = async (source, skipLoading = false) => {
                 if (!source.rss) {
                     alert(`${source.name} doesn't have an RSS feed configured`);
@@ -182,106 +239,131 @@
                     setDebugInfo(`📰 Loading RSS feed from ${source.name}...`);
                 }
                 
-                try {
-                    // Method 1: Try RSS2JSON API (most reliable for RSS parsing)
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-                    
-                    let response;
+                // Try multiple proxy services in order
+                const proxies = [
+                    {
+                        name: 'RSS2JSON',
+                        url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.rss)}&count=50`,
+                        parse: async (response) => {
+                            const data = await response.json();
+                            if (data.status !== 'ok' || !data.items) throw new Error('Invalid response');
+                            return data.items.map(item => ({
+                                title: item.title,
+                                description: item.description || item.content || '',
+                                link: item.link || item.guid,
+                                pubDate: item.pubDate,
+                                thumbnail: item.thumbnail || item.enclosure?.link,
+                                author: item.author
+                            }));
+                        }
+                    },
+                    {
+                        name: 'AllOrigins',
+                        url: `https://api.allorigins.win/raw?url=${encodeURIComponent(source.rss)}`,
+                        parse: async (response) => {
+                            const xmlText = await response.text();
+                            return parseRssXml(xmlText, source);
+                        }
+                    },
+                    {
+                        name: 'CORS.sh',
+                        url: `https://cors.sh/${source.rss}`,
+                        parse: async (response) => {
+                            const xmlText = await response.text();
+                            return parseRssXml(xmlText, source);
+                        }
+                    },
+                    {
+                        name: 'ThingProxy',
+                        url: `https://thingproxy.freeboard.io/fetch/${source.rss}`,
+                        parse: async (response) => {
+                            const xmlText = await response.text();
+                            return parseRssXml(xmlText, source);
+                        }
+                    }
+                ];
+                
+                let lastError = null;
+                
+                for (const proxy of proxies) {
                     try {
-                        response = await fetch(
-                            `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(source.rss)}&count=50&api_key=public`,
-                            { 
-                                signal: controller.signal,
-                                mode: 'cors'
-                            }
-                        );
-                    } catch (fetchError) {
-                        throw new Error(`Network error: ${fetchError.message}. RSS2JSON may be blocked by browser or network.`);
-                    }
-                    
-                    clearTimeout(timeoutId);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: Server error from RSS2JSON`);
-                    }
-                    
-                    const data = await response.json();
-                    
-                    if (data.status !== 'ok') {
-                        throw new Error(data.message || `RSS2JSON error: ${JSON.stringify(data)}`);
-                    }
-                    
-                    if (!data.items || data.items.length === 0) {
-                        throw new Error('RSS feed is empty or returned no articles');
-                    }
-                    
-                    console.log(`✅ RSS2JSON returned ${data.items.length} items from ${source.name}`);
-                    
-                    // Get current date for filtering - extend to last 60 days
-                    const now = new Date();
-                    const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
-                    
-                    // Transform RSS items to our format
-                    const allArticles = data.items.map((item) => {
-                        const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
+                        console.log(`Trying ${proxy.name} for ${source.name}...`);
                         
-                        return {
-                            title: item.title || 'Untitled',
-                            description: (item.description || item.content || '')
-                                .replace(/<[^>]*>/g, '')
-                                .substring(0, 200) + '...' || 'No description available',
-                            url: item.link || item.guid || '#',
-                            imageUrl: item.thumbnail || item.enclosure?.link || 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400',
-                            source: source.name,
-                            publishedAt: item.pubDate || new Date().toISOString(),
-                            author: item.author || source.name,
-                            pubDate: pubDate
-                        };
-                    });
-                    
-                    // Filter by date and sort newest first
-                    const recentArticles = allArticles
-                        .filter(article => article.pubDate >= sixtyDaysAgo)
-                        .sort((a, b) => b.pubDate - a.pubDate);
-                    
-                    const articlesToShow = recentArticles.length > 0 ? recentArticles : allArticles.sort((a, b) => b.pubDate - a.pubDate);
-                    
-                    if (!skipLoading) {
-                        setRssFeedArticles(articlesToShow);
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 10000);
                         
-                        if (recentArticles.length === 0) {
-                            setDebugInfo(`✅ Loaded ${articlesToShow.length} articles from ${source.name} (all available - none in last 60 days)`);
-                        } else {
-                            setDebugInfo(`✅ Loaded ${articlesToShow.length} articles from ${source.name} (last 60 days)`);
-                        }
-                    }
-                    
-                    return { success: true, articles: articlesToShow, source: source.name };
-                    
-                } catch (error) {
-                    console.error(`RSS fetch error for ${source.name}:`, error);
-                    
-                    if (!skipLoading) {
-                        let errorMsg = error.message;
+                        const response = await fetch(proxy.url, {
+                            signal: controller.signal,
+                            headers: proxy.name === 'CORS.sh' ? { 'x-requested-with': 'XMLHttpRequest' } : {}
+                        });
                         
-                        if (error.name === 'AbortError') {
-                            errorMsg = 'Request timed out. The RSS feed may be slow or unavailable.';
-                        } else if (error.message.includes('Network error') || error.message.includes('Failed to fetch')) {
-                            errorMsg = 'Network blocked. Try: 1) Disable browser extensions 2) Check if RSS2JSON.com is accessible 3) Try a different network';
+                        clearTimeout(timeoutId);
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
                         }
                         
-                        setDebugInfo(`❌ ${source.name}: ${errorMsg}`);
-                        setRssFeedArticles([]);
+                        const items = await proxy.parse(response);
+                        
+                        if (!items || items.length === 0) {
+                            throw new Error('No items returned');
+                        }
+                        
+                        console.log(`✅ ${proxy.name} succeeded with ${items.length} items for ${source.name}`);
+                        
+                        // Transform to our format
+                        const now = new Date();
+                        const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
+                        
+                        const allArticles = items.map(item => {
+                            const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
+                            return {
+                                title: item.title || 'Untitled',
+                                description: (item.description || '').replace(/<[^>]*>/g, '').substring(0, 200) + '...' || 'No description',
+                                url: item.link || '#',
+                                imageUrl: item.thumbnail || 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400',
+                                source: source.name,
+                                publishedAt: item.pubDate || new Date().toISOString(),
+                                author: item.author || source.name,
+                                pubDate: pubDate
+                            };
+                        });
+                        
+                        const recentArticles = allArticles
+                            .filter(article => article.pubDate >= sixtyDaysAgo)
+                            .sort((a, b) => b.pubDate - a.pubDate);
+                        
+                        const articlesToShow = recentArticles.length > 0 ? recentArticles : allArticles.sort((a, b) => b.pubDate - a.pubDate);
+                        
+                        if (!skipLoading) {
+                            setRssFeedArticles(articlesToShow);
+                            setDebugInfo(`✅ Loaded ${articlesToShow.length} articles from ${source.name} via ${proxy.name}`);
+                        }
+                        
+                        return { success: true, articles: articlesToShow, source: source.name, proxy: proxy.name };
+                        
+                    } catch (error) {
+                        console.warn(`${proxy.name} failed for ${source.name}:`, error.message);
+                        lastError = error;
+                        continue; // Try next proxy
                     }
-                    
-                    return { success: false, articles: [], source: source.name, error: error.message };
                 }
-                finally {
-                    if (!skipLoading) {
-                        setLoadingRss(false);
-                    }
+                
+                // All proxies failed
+                console.error(`All proxies failed for ${source.name}:`, lastError);
+                
+                if (!skipLoading) {
+                    setDebugInfo(`❌ ${source.name}: All proxy services failed. Feed: ${source.rss}`);
+                    setRssFeedArticles([]);
                 }
+                
+                return { 
+                    success: false, 
+                    articles: [], 
+                    source: source.name, 
+                    error: 'All proxy services failed',
+                    feedUrl: source.rss 
+                };
             };
 
             const fetchAllRssFeeds = async () => {
@@ -295,7 +377,7 @@
                 setLoadingRss(true);
                 setShowRssFeed(true);
                 setSelectedRssSource({ name: 'All Sources', icon: '🌐' });
-                setDebugInfo(`📰 Fetching articles from ${sourcesWithRss.length} RSS feeds...`);
+                setDebugInfo(`📰 Trying ${sourcesWithRss.length} RSS feeds with multiple proxy services...`);
                 
                 const allArticles = [];
                 const results = {
@@ -303,19 +385,27 @@
                     failed: []
                 };
                 
-                // Fetch all feeds in parallel
-                const promises = sourcesWithRss.map(source => fetchRssFeed(source, true));
-                const responses = await Promise.all(promises);
-                
-                // Collect all articles and track results
-                responses.forEach(response => {
+                // Fetch all feeds sequentially to avoid overwhelming proxies
+                for (const source of sourcesWithRss) {
+                    const response = await fetchRssFeed(source, true);
+                    
                     if (response.success) {
                         allArticles.push(...response.articles);
-                        results.successful.push(response.source);
+                        results.successful.push({ 
+                            source: response.source, 
+                            count: response.articles.length,
+                            proxy: response.proxy 
+                        });
+                        setDebugInfo(`✅ ${results.successful.length}/${sourcesWithRss.length}: ${response.source} (${response.articles.length} articles via ${response.proxy})`);
                     } else {
-                        results.failed.push({ source: response.source, error: response.error });
+                        results.failed.push({ 
+                            source: response.source, 
+                            error: response.error,
+                            feedUrl: response.feedUrl 
+                        });
+                        setDebugInfo(`⚠️ ${results.successful.length + results.failed.length}/${sourcesWithRss.length}: ${response.source} failed`);
                     }
-                });
+                }
                 
                 // Sort all articles by date
                 allArticles.sort((a, b) => b.pubDate - a.pubDate);
@@ -324,12 +414,23 @@
                 setLoadingRss(false);
                 
                 // Create detailed status message
-                let statusMsg = `✅ Loaded ${allArticles.length} articles from ${results.successful.length}/${sourcesWithRss.length} feeds`;
-                if (results.failed.length > 0) {
-                    statusMsg += `\n⚠️ Failed: ${results.failed.map(f => f.source).join(', ')}`;
+                let statusMsg = '';
+                if (results.successful.length > 0) {
+                    statusMsg = `✅ SUCCESS: Loaded ${allArticles.length} articles from ${results.successful.length}/${sourcesWithRss.length} feeds\n`;
+                    statusMsg += results.successful.map(s => `  • ${s.source}: ${s.count} articles (${s.proxy})`).join('\n');
                 }
-                setDebugInfo(statusMsg);
                 
+                if (results.failed.length > 0) {
+                    statusMsg += `\n\n⚠️ FAILED (${results.failed.length}):\n`;
+                    statusMsg += results.failed.map(f => `  • ${f.source}\n    URL: ${f.feedUrl}`).join('\n');
+                    statusMsg += '\n\n💡 For failed feeds, you can:\n  • Try them individually\n  • Visit the feed URL directly in browser\n  • Use an RSS reader app';
+                }
+                
+                if (results.successful.length === 0) {
+                    statusMsg = '❌ All feeds failed. Your network may be blocking RSS proxy services.\n\nTry:\n  • Disable ad blocker\n  • Use VPN\n  • Try from different network';
+                }
+                
+                setDebugInfo(statusMsg);
                 console.log('Fetch All Results:', results);
             };
 
@@ -1025,17 +1126,36 @@
                                                 </div>
                                             ) : rssFeedArticles.length === 0 ? (
                                                 <div className="text-center py-8">
-                                                    <p className="text-gray-300 mb-4">No articles found in this feed.</p>
-                                                    <div className="p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-left">
-                                                        <p className="text-yellow-200 text-sm font-bold mb-2">🔧 Troubleshooting Tips:</p>
-                                                        <ul className="text-yellow-100 text-xs space-y-1 list-disc list-inside">
-                                                            <li>Check if the RSS feed URL is correct</li>
-                                                            <li>Try disabling browser extensions (especially ad blockers)</li>
-                                                            <li>Check browser console (F12) for specific errors</li>
-                                                            <li>Some networks/firewalls may block RSS2JSON.com</li>
-                                                            <li>Try accessing from a different network or device</li>
-                                                            <li>Use "Fetch All" to try multiple feeds at once</li>
-                                                        </ul>
+                                                    <p className="text-gray-300 mb-4 font-bold text-lg">❌ No articles loaded</p>
+                                                    <div className="p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-left max-w-2xl mx-auto">
+                                                        <p className="text-yellow-200 text-sm font-bold mb-3">🔧 Troubleshooting:</p>
+                                                        <div className="text-yellow-100 text-xs space-y-2">
+                                                            <p className="font-semibold">Common fixes:</p>
+                                                            <ul className="list-disc list-inside space-y-1 ml-2">
+                                                                <li>Disable browser ad blockers and privacy extensions</li>
+                                                                <li>Try in Incognito/Private browsing mode</li>
+                                                                <li>Use a VPN if on corporate/school network</li>
+                                                                <li>Try from a different device or network</li>
+                                                                <li>Check browser console (F12) for specific errors</li>
+                                                            </ul>
+                                                            
+                                                            {selectedRssSource?.name !== 'All Sources' && selectedRssSource && customSources.find(s => s.name === selectedRssSource.name)?.rss && (
+                                                                <div className="mt-3 pt-3 border-t border-yellow-500/30">
+                                                                    <p className="font-semibold mb-1">Manual check:</p>
+                                                                    <p className="text-xs break-all bg-black/30 p-2 rounded">
+                                                                        {customSources.find(s => s.name === selectedRssSource.name).rss}
+                                                                    </p>
+                                                                    <a 
+                                                                        href={customSources.find(s => s.name === selectedRssSource.name).rss}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="inline-block mt-2 px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs"
+                                                                    >
+                                                                        🔗 Open Feed in Browser
+                                                                    </a>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -1371,7 +1491,7 @@
                                     debugInfo.includes('⚠️') ? 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30' :
                                     'bg-blue-500/20 text-blue-200 border-blue-500/30'
                                 }`}>
-                                    <span className="font-semibold">{debugInfo}</span>
+                                    <pre className="font-semibold text-sm whitespace-pre-wrap font-sans">{debugInfo}</pre>
                                 </div>
                             )}
 
