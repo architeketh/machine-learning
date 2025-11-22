@@ -88,6 +88,8 @@
             const [rssFeedArticles, setRssFeedArticles] = useState([]);
             const [loadingRss, setLoadingRss] = useState(false);
             const [selectedRssSource, setSelectedRssSource] = useState(null);
+            const [selectedRssArticles, setSelectedRssArticles] = useState(new Set());
+            const [addedArticleUrls, setAddedArticleUrls] = useState(new Set());
             
             // Form for manual article entry
             const [newArticle, setNewArticle] = useState({
@@ -236,6 +238,7 @@
                     setLoadingRss(true);
                     setSelectedRssSource(source);
                     setShowRssFeed(true);
+                    setSelectedRssArticles(new Set());
                     setDebugInfo(`📰 Loading RSS feed from ${source.name}...`);
                 }
                 
@@ -377,7 +380,8 @@
                 setLoadingRss(true);
                 setShowRssFeed(true);
                 setSelectedRssSource({ name: 'All Sources', icon: '🌐' });
-                setDebugInfo(`📰 Trying ${sourcesWithRss.length} RSS feeds with multiple proxy services...`);
+                setSelectedRssArticles(new Set());
+                setDebugInfo(`📰 Loading ${sourcesWithRss.length} RSS feeds in parallel (this may take 10-30 seconds)...`);
                 
                 const allArticles = [];
                 const results = {
@@ -385,10 +389,12 @@
                     failed: []
                 };
                 
-                // Fetch all feeds sequentially to avoid overwhelming proxies
-                for (const source of sourcesWithRss) {
-                    const response = await fetchRssFeed(source, true);
-                    
+                // Fetch all feeds in parallel for speed
+                const promises = sourcesWithRss.map(source => fetchRssFeed(source, true));
+                const responses = await Promise.all(promises);
+                
+                // Collect all articles and track results
+                responses.forEach(response => {
                     if (response.success) {
                         allArticles.push(...response.articles);
                         results.successful.push({ 
@@ -396,16 +402,14 @@
                             count: response.articles.length,
                             proxy: response.proxy 
                         });
-                        setDebugInfo(`✅ ${results.successful.length}/${sourcesWithRss.length}: ${response.source} (${response.articles.length} articles via ${response.proxy})`);
                     } else {
                         results.failed.push({ 
                             source: response.source, 
                             error: response.error,
                             feedUrl: response.feedUrl 
                         });
-                        setDebugInfo(`⚠️ ${results.successful.length + results.failed.length}/${sourcesWithRss.length}: ${response.source} failed`);
                     }
-                }
+                });
                 
                 // Sort all articles by date
                 allArticles.sort((a, b) => b.pubDate - a.pubDate);
@@ -422,12 +426,11 @@
                 
                 if (results.failed.length > 0) {
                     statusMsg += `\n\n⚠️ FAILED (${results.failed.length}):\n`;
-                    statusMsg += results.failed.map(f => `  • ${f.source}\n    URL: ${f.feedUrl}`).join('\n');
-                    statusMsg += '\n\n💡 For failed feeds, you can:\n  • Try them individually\n  • Visit the feed URL directly in browser\n  • Use an RSS reader app';
+                    statusMsg += results.failed.map(f => `  • ${f.source}`).join('\n');
                 }
                 
                 if (results.successful.length === 0) {
-                    statusMsg = '❌ All feeds failed. Your network may be blocking RSS proxy services.\n\nTry:\n  • Disable ad blocker\n  • Use VPN\n  • Try from different network';
+                    statusMsg = '❌ All feeds failed. Try:\n  • Disable ad blocker\n  • Try individual feeds\n  • Use VPN or different network';
                 }
                 
                 setDebugInfo(statusMsg);
@@ -438,6 +441,83 @@
                 setShowRssFeed(false);
                 setRssFeedArticles([]);
                 setSelectedRssSource(null);
+                setSelectedRssArticles(new Set());
+            };
+
+            const toggleRssArticleSelection = (articleUrl) => {
+                const newSelection = new Set(selectedRssArticles);
+                if (newSelection.has(articleUrl)) {
+                    newSelection.delete(articleUrl);
+                } else {
+                    newSelection.add(articleUrl);
+                }
+                setSelectedRssArticles(newSelection);
+            };
+
+            const selectAllRssArticles = () => {
+                const allUrls = new Set(rssFeedArticles.map(a => a.url));
+                setSelectedRssArticles(allUrls);
+            };
+
+            const deselectAllRssArticles = () => {
+                setSelectedRssArticles(new Set());
+            };
+
+            const addSelectedRssArticles = async () => {
+                if (selectedRssArticles.size === 0) {
+                    alert('Please select articles to add');
+                    return;
+                }
+
+                if (!user) {
+                    alert('Please sign in to add articles');
+                    return;
+                }
+
+                setDebugInfo(`📥 Adding ${selectedRssArticles.size} articles...`);
+                
+                let addedCount = 0;
+                const errors = [];
+                
+                for (const articleUrl of selectedRssArticles) {
+                    const article = rssFeedArticles.find(a => a.url === articleUrl);
+                    if (!article) continue;
+                    
+                    try {
+                        const articleData = {
+                            title: article.title,
+                            url: article.url,
+                            description: article.description || '',
+                            imageUrl: article.imageUrl || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
+                            category: selectedCategory === 'All Articles' || selectedCategory === 'Favorites' ? 'Machine Learning' : selectedCategory,
+                            favorite: false,
+                            notes: [],
+                            dateAdded: new Date().toISOString(),
+                            source: article.source || 'RSS Feed'
+                        };
+                        
+                        await saveArticleToFirebase(articleData);
+                        addedCount++;
+                        
+                        // Mark as added
+                        setAddedArticleUrls(prev => new Set([...prev, articleUrl]));
+                        
+                    } catch (error) {
+                        console.error('Error adding article:', error);
+                        errors.push(article.title);
+                    }
+                }
+                
+                await loadArticlesFromFirebase();
+                
+                if (errors.length === 0) {
+                    setDebugInfo(`✅ Successfully added ${addedCount} articles!`);
+                } else {
+                    setDebugInfo(`✅ Added ${addedCount} articles\n⚠️ Failed: ${errors.length}`);
+                }
+                
+                // Clear selection
+                setSelectedRssArticles(new Set());
             };
 
             const signInWithGoogle = async () => {
@@ -672,12 +752,11 @@
                     await saveArticleToFirebase(articleData);
                     await loadArticlesFromFirebase();
                     
-                    setDebugInfo('✅ Article added successfully!');
+                    // Mark as added
+                    setAddedArticleUrls(prev => new Set([...prev, result.url]));
                     
-                    // Auto-close search modal after 2 seconds
-                    setTimeout(() => {
-                        setShowWebSearch(false);
-                    }, 2000);
+                    setDebugInfo(`✅ Article added successfully!`);
+                    
                 } catch (error) {
                     console.error('Error adding article:', error);
                     setDebugInfo(`❌ Failed to add article: ${error.message}. Check Firebase permissions.`);
@@ -1111,13 +1190,48 @@
                                                         ? `Latest from All Sources (${rssFeedArticles.length} articles)` 
                                                         : `Latest from ${selectedRssSource?.name}`}
                                                 </h3>
-                                                <button
-                                                    onClick={closeRssFeed}
-                                                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
-                                                >
-                                                    Close
-                                                </button>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={closeRssFeed}
+                                                        className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
+                                                    >
+                                                        Close
+                                                    </button>
+                                                </div>
                                             </div>
+                                            
+                                            {/* Bulk Selection Controls */}
+                                            {user && rssFeedArticles.length > 0 && (
+                                                <div className="mb-3 p-3 bg-gray-700/50 rounded-lg border border-gray-600">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="text-white text-sm font-semibold">
+                                                            {selectedRssArticles.size > 0 
+                                                                ? `${selectedRssArticles.size} selected` 
+                                                                : 'Select articles:'}
+                                                        </span>
+                                                        <button
+                                                            onClick={selectAllRssArticles}
+                                                            className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold rounded transition-all"
+                                                        >
+                                                            ☑️ Select All
+                                                        </button>
+                                                        <button
+                                                            onClick={deselectAllRssArticles}
+                                                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white text-xs font-semibold rounded transition-all"
+                                                        >
+                                                            ☐ Clear
+                                                        </button>
+                                                        {selectedRssArticles.size > 0 && (
+                                                            <button
+                                                                onClick={addSelectedRssArticles}
+                                                                className="ml-auto px-4 py-1.5 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-sm font-bold rounded-lg transition-all shadow-md"
+                                                            >
+                                                                ➕ Add {selectedRssArticles.size} to Library
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
                                             
                                             {loadingRss ? (
                                                 <div className="text-center py-8">
@@ -1160,59 +1274,92 @@
                                                 </div>
                                             ) : (
                                                 <div className="space-y-3 max-h-96 overflow-y-auto">
-                                                    {rssFeedArticles.map((article, index) => (
-                                                        <div key={index} className="bg-gray-800/80 rounded-xl p-3 border border-gray-600 hover:border-orange-500 transition-all">
-                                                            <div className="flex gap-3">
-                                                                <img 
-                                                                    src={article.imageUrl} 
-                                                                    alt={article.title}
-                                                                    className="w-24 h-24 object-cover rounded-lg flex-shrink-0"
-                                                                    onError={(e) => {
-                                                                        e.target.src = 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400';
-                                                                    }}
-                                                                />
-                                                                <div className="flex-1 min-w-0">
-                                                                    <h4 className="text-white font-semibold text-sm mb-1 line-clamp-2">{article.title}</h4>
-                                                                    <p className="text-gray-300 text-xs mb-2 line-clamp-2">{article.description}</p>
-                                                                    <div className="flex items-center gap-3 flex-wrap text-xs">
-                                                                        {selectedRssSource?.name === 'All Sources' && (
-                                                                            <span className="px-2 py-0.5 bg-blue-500/30 text-blue-300 rounded-full font-medium">
-                                                                                {article.source}
+                                                    {rssFeedArticles.map((article, index) => {
+                                                        const isAdded = addedArticleUrls.has(article.url);
+                                                        const isSelected = selectedRssArticles.has(article.url);
+                                                        
+                                                        return (
+                                                            <div 
+                                                                key={index} 
+                                                                className={`bg-gray-800/80 rounded-xl p-3 border transition-all ${
+                                                                    isAdded 
+                                                                        ? 'border-green-500/50 bg-green-900/20' 
+                                                                        : isSelected 
+                                                                            ? 'border-blue-500 bg-blue-900/20' 
+                                                                            : 'border-gray-600 hover:border-orange-500'
+                                                                }`}
+                                                            >
+                                                                <div className="flex gap-3">
+                                                                    {/* Checkbox */}
+                                                                    {user && !isAdded && (
+                                                                        <div className="flex-shrink-0 pt-1">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isSelected}
+                                                                                onChange={() => toggleRssArticleSelection(article.url)}
+                                                                                className="w-5 h-5 cursor-pointer rounded accent-blue-500"
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                    
+                                                                    {/* Image */}
+                                                                    <img 
+                                                                        src={article.imageUrl} 
+                                                                        alt={article.title}
+                                                                        className="w-24 h-24 object-cover rounded-lg flex-shrink-0"
+                                                                        onError={(e) => {
+                                                                            e.target.src = 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400';
+                                                                        }}
+                                                                    />
+                                                                    
+                                                                    {/* Content */}
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <h4 className="text-white font-semibold text-sm mb-1 line-clamp-2">{article.title}</h4>
+                                                                        <p className="text-gray-300 text-xs mb-2 line-clamp-2">{article.description}</p>
+                                                                        <div className="flex items-center gap-3 flex-wrap text-xs">
+                                                                            {selectedRssSource?.name === 'All Sources' && (
+                                                                                <span className="px-2 py-0.5 bg-blue-500/30 text-blue-300 rounded-full font-medium">
+                                                                                    {article.source}
+                                                                                </span>
+                                                                            )}
+                                                                            <span className="text-gray-400">
+                                                                                {new Date(article.publishedAt).toLocaleDateString()}
                                                                             </span>
-                                                                        )}
-                                                                        <span className="text-gray-400">
-                                                                            {new Date(article.publishedAt).toLocaleDateString()}
-                                                                        </span>
-                                                                        <a 
-                                                                            href={article.url} 
-                                                                            target="_blank" 
-                                                                            rel="noopener noreferrer"
-                                                                            className="text-orange-400 hover:text-orange-300"
-                                                                        >
-                                                                            🔗 Read Article
-                                                                        </a>
-                                                                        {user && (
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    addArticleFromSearch({
-                                                                                        title: article.title,
-                                                                                        url: article.url,
-                                                                                        description: article.description,
-                                                                                        imageUrl: article.imageUrl,
-                                                                                        source: article.source,
-                                                                                        publishedAt: article.publishedAt
-                                                                                    });
-                                                                                }}
-                                                                                className="ml-auto px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-all"
+                                                                            <a 
+                                                                                href={article.url} 
+                                                                                target="_blank" 
+                                                                                rel="noopener noreferrer"
+                                                                                className="text-orange-400 hover:text-orange-300"
                                                                             >
-                                                                                ➕ Add to Library
-                                                                            </button>
-                                                                        )}
+                                                                                🔗 Read Article
+                                                                            </a>
+                                                                            {isAdded ? (
+                                                                                <span className="ml-auto px-3 py-1 bg-green-500/30 text-green-300 text-xs font-semibold rounded-lg border border-green-500/50">
+                                                                                    ✓ Added to Library
+                                                                                </span>
+                                                                            ) : user && (
+                                                                                <button
+                                                                                    onClick={() => {
+                                                                                        addArticleFromSearch({
+                                                                                            title: article.title,
+                                                                                            url: article.url,
+                                                                                            description: article.description,
+                                                                                            imageUrl: article.imageUrl,
+                                                                                            source: article.source,
+                                                                                            publishedAt: article.publishedAt
+                                                                                        });
+                                                                                    }}
+                                                                                    className="ml-auto px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-all"
+                                                                                >
+                                                                                    ➕ Add
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             )}
                                         </div>
