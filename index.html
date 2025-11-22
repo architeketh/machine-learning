@@ -13,17 +13,45 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    
+    <style>
+        /* Custom scrollbar for better mobile experience */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(59, 130, 246, 0.5);
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(59, 130, 246, 0.7);
+        }
+        
+        /* Prevent body scroll when modal is open */
+        body.modal-open {
+            overflow: hidden;
+        }
+        
+        /* Better mobile touch targets */
+        @media (max-width: 768px) {
+            button, a {
+                min-height: 44px;
+            }
+        }
+    </style>
 </head>
 <body>
     <div id="root"></div>
     
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
-        // Firebase Configuration - ML Architecture Hub
-        // NOTE: This API key is meant to be public in Firebase web apps.
-        // Security is enforced by Firestore Security Rules, not by hiding the key.
-        // See SECURITY.md for full explanation.
+        // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBcf2s3Dl6WR0laNjpdiEyCENvK2DEAl-c",
             authDomain: "ml-architecture-hub.firebaseapp.com",
@@ -47,8 +75,6 @@
             console.error("❌ Firebase initialization error:", e);
         }
 
-        const DELETE_PASSWORD = 'delete!';
-
         const MLArchitectureHub = () => {
             const [articles, setArticles] = useState([]);
             const [view, setView] = useState('grid');
@@ -56,7 +82,7 @@
             const [categories, setCategories] = useState(['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision', 'Neural Networks', 'NLP']);
             const [selectedCategory, setSelectedCategory] = useState('All Articles');
             const [showArchive, setShowArchive] = useState(false);
-            const [archiveGroupBy, setArchiveGroupBy] = useState('month'); // 'month' or 'year'
+            const [archiveGroupBy, setArchiveGroupBy] = useState('month');
             const [searchTerm, setSearchTerm] = useState('');
             const [showNewCategory, setShowNewCategory] = useState(false);
             const [newCategoryName, setNewCategoryName] = useState('');
@@ -82,7 +108,6 @@
                 { name: 'Architectural Digest', url: 'https://www.architecturaldigest.com/search?q=', icon: '🏠', rss: 'https://www.architecturaldigest.com/feed/rss' },
                 { name: 'ArchitectPaper', url: 'https://www.archpaper.com/?s=', icon: '📄', rss: 'https://www.archpaper.com/feed/' },
                 { name: 'DesignBoom', url: 'https://www.designboom.com/search/?q=', icon: '💡', rss: 'https://www.designboom.com/feed/' },
-                { name: 'YoungArchitectFeed', url: 'https://www.youngarchitectfeed.com/?s=', icon: '🎓', rss: '' },
                 { name: 'Wired Magazine', url: 'https://www.wired.com/search/?q=', icon: '🤖', rss: 'https://www.wired.com/feed/rss' }
             ]);
             const [newSource, setNewSource] = useState({ name: '', url: '', icon: '🔗', rss: '' });
@@ -92,6 +117,7 @@
             const [selectedRssSource, setSelectedRssSource] = useState(null);
             const [selectedRssArticles, setSelectedRssArticles] = useState(new Set());
             const [addedArticleUrls, setAddedArticleUrls] = useState(new Set());
+            const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
             
             // Form for manual article entry
             const [newArticle, setNewArticle] = useState({
@@ -102,11 +128,25 @@
                 category: 'Machine Learning'
             });
 
+            // Handle mobile detection and body scroll lock
+            useEffect(() => {
+                const handleResize = () => setIsMobile(window.innerWidth < 768);
+                window.addEventListener('resize', handleResize);
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
+
+            useEffect(() => {
+                if (showWebSearch || showAddArticle || showNewCategory || showRssFeed) {
+                    document.body.classList.add('modal-open');
+                } else {
+                    document.body.classList.remove('modal-open');
+                }
+            }, [showWebSearch, showAddArticle, showNewCategory, showRssFeed]);
+
             useEffect(() => {
                 loadArticlesFromFirebase();
                 loadCustomSources();
                 
-                // Set up authentication state listener
                 if (auth) {
                     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
                         setUser(currentUser);
@@ -128,7 +168,6 @@
             const loadCustomSources = async () => {
                 try {
                     if (!db || !firebaseInitialized) return;
-                    
                     const sourceDoc = await db.collection('ml-settings').doc('sources').get();
                     if (sourceDoc.exists && sourceDoc.data().list) {
                         setCustomSources(sourceDoc.data().list);
@@ -167,26 +206,16 @@
                 setDebugInfo('✅ Source removed');
             };
 
-            const clearSearchResults = () => {
-                setSearchResults([]);
-                setWebSearchQuery('');
-                setDebugInfo('🧹 Search cleared');
-            };
-
             const parseRssXml = (xmlString, source) => {
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
                 
-                // Check for parsing errors
                 const parseError = xmlDoc.querySelector('parsererror');
                 if (parseError) {
                     throw new Error('Invalid XML format');
                 }
                 
-                // Try RSS format first
                 let items = xmlDoc.querySelectorAll('item');
-                
-                // If no items, try Atom format
                 if (items.length === 0) {
                     items = xmlDoc.querySelectorAll('entry');
                 }
@@ -244,7 +273,6 @@
                     setDebugInfo(`📰 Loading RSS feed from ${source.name}...`);
                 }
                 
-                // Try multiple proxy services in order
                 const proxies = [
                     {
                         name: 'RSS2JSON',
@@ -269,22 +297,6 @@
                             const xmlText = await response.text();
                             return parseRssXml(xmlText, source);
                         }
-                    },
-                    {
-                        name: 'CORS.sh',
-                        url: `https://cors.sh/${source.rss}`,
-                        parse: async (response) => {
-                            const xmlText = await response.text();
-                            return parseRssXml(xmlText, source);
-                        }
-                    },
-                    {
-                        name: 'ThingProxy',
-                        url: `https://thingproxy.freeboard.io/fetch/${source.rss}`,
-                        parse: async (response) => {
-                            const xmlText = await response.text();
-                            return parseRssXml(xmlText, source);
-                        }
                     }
                 ];
                 
@@ -295,11 +307,10 @@
                         console.log(`Trying ${proxy.name} for ${source.name}...`);
                         
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 10000);
+                        const timeoutId = setTimeout(() => controller.abort(), 15000);
                         
                         const response = await fetch(proxy.url, {
-                            signal: controller.signal,
-                            headers: proxy.name === 'CORS.sh' ? { 'x-requested-with': 'XMLHttpRequest' } : {}
+                            signal: controller.signal
                         });
                         
                         clearTimeout(timeoutId);
@@ -316,7 +327,6 @@
                         
                         console.log(`✅ ${proxy.name} succeeded with ${items.length} items for ${source.name}`);
                         
-                        // Transform to our format
                         const now = new Date();
                         const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000));
                         
@@ -342,6 +352,7 @@
                         
                         if (!skipLoading) {
                             setRssFeedArticles(articlesToShow);
+                            setLoadingRss(false);
                             setDebugInfo(`✅ Loaded ${articlesToShow.length} articles from ${source.name} via ${proxy.name}`);
                         }
                         
@@ -350,15 +361,15 @@
                     } catch (error) {
                         console.warn(`${proxy.name} failed for ${source.name}:`, error.message);
                         lastError = error;
-                        continue; // Try next proxy
+                        continue;
                     }
                 }
                 
-                // All proxies failed
                 console.error(`All proxies failed for ${source.name}:`, lastError);
                 
                 if (!skipLoading) {
-                    setDebugInfo(`❌ ${source.name}: All proxy services failed. Feed: ${source.rss}`);
+                    setLoadingRss(false);
+                    setDebugInfo(`❌ ${source.name}: Failed to load RSS feed. Try:\n• Disable ad blocker\n• Use different network\n• Try individual feeds instead of "Fetch All"`);
                     setRssFeedArticles([]);
                 }
                 
@@ -366,8 +377,7 @@
                     success: false, 
                     articles: [], 
                     source: source.name, 
-                    error: 'All proxy services failed',
-                    feedUrl: source.rss 
+                    error: 'All proxy services failed'
                 };
             };
 
@@ -383,7 +393,7 @@
                 setShowRssFeed(true);
                 setSelectedRssSource({ name: 'All Sources', icon: '🌐' });
                 setSelectedRssArticles(new Set());
-                setDebugInfo(`📰 Loading ${sourcesWithRss.length} RSS feeds in parallel (this may take 10-30 seconds)...`);
+                setDebugInfo(`📰 Loading ${sourcesWithRss.length} RSS feeds (this may take 30+ seconds)...`);
                 
                 const allArticles = [];
                 const results = {
@@ -391,11 +401,9 @@
                     failed: []
                 };
                 
-                // Fetch all feeds in parallel for speed
                 const promises = sourcesWithRss.map(source => fetchRssFeed(source, true));
                 const responses = await Promise.all(promises);
                 
-                // Collect all articles and track results
                 responses.forEach(response => {
                     if (response.success) {
                         allArticles.push(...response.articles);
@@ -407,43 +415,44 @@
                     } else {
                         results.failed.push({ 
                             source: response.source, 
-                            error: response.error,
-                            feedUrl: response.feedUrl 
+                            error: response.error
                         });
                     }
                 });
                 
-                // Sort all articles by date
                 allArticles.sort((a, b) => b.pubDate - a.pubDate);
                 
                 setRssFeedArticles(allArticles);
                 setLoadingRss(false);
                 
-                // Create detailed status message
                 let statusMsg = '';
                 if (results.successful.length > 0) {
                     statusMsg = `✅ SUCCESS: Loaded ${allArticles.length} articles from ${results.successful.length}/${sourcesWithRss.length} feeds\n`;
-                    statusMsg += results.successful.map(s => `  • ${s.source}: ${s.count} articles (${s.proxy})`).join('\n');
+                    statusMsg += results.successful.map(s => `  • ${s.source}: ${s.count} articles`).join('\n');
                 }
                 
                 if (results.failed.length > 0) {
                     statusMsg += `\n\n⚠️ FAILED (${results.failed.length}):\n`;
                     statusMsg += results.failed.map(f => `  • ${f.source}`).join('\n');
+                    statusMsg += `\n\nℹ️ Try loading failed feeds individually`;
                 }
                 
                 if (results.successful.length === 0) {
-                    statusMsg = '❌ All feeds failed. Try:\n  • Disable ad blocker\n  • Try individual feeds\n  • Use VPN or different network';
+                    statusMsg = '❌ All feeds failed. Try:\n  • Disable ad blocker\n  • Try individual feeds\n  • Use different network/VPN';
                 }
                 
                 setDebugInfo(statusMsg);
-                console.log('Fetch All Results:', results);
             };
 
-            const closeRssFeed = () => {
-                setShowRssFeed(false);
-                setRssFeedArticles([]);
-                setSelectedRssSource(null);
-                setSelectedRssArticles(new Set());
+            const searchWebWithSource = (source) => {
+                if (!webSearchQuery.trim()) {
+                    alert('Please enter a search term first');
+                    return;
+                }
+                
+                const searchUrl = `${source.url}${encodeURIComponent(webSearchQuery)}`;
+                window.open(searchUrl, '_blank');
+                setDebugInfo(`🔍 Opened search for "${webSearchQuery}" in ${source.name}`);
             };
 
             const toggleRssArticleSelection = (articleUrl) => {
@@ -479,7 +488,6 @@
                 setDebugInfo(`📥 Adding ${selectedRssArticles.size} articles...`);
                 
                 let addedCount = 0;
-                const errors = [];
                 
                 for (const articleUrl of selectedRssArticles) {
                     const article = rssFeedArticles.find(a => a.url === articleUrl);
@@ -500,25 +508,14 @@
                         
                         await saveArticleToFirebase(articleData);
                         addedCount++;
-                        
-                        // Mark as added
                         setAddedArticleUrls(prev => new Set([...prev, articleUrl]));
-                        
                     } catch (error) {
                         console.error('Error adding article:', error);
-                        errors.push(article.title);
                     }
                 }
                 
                 await loadArticlesFromFirebase();
-                
-                if (errors.length === 0) {
-                    setDebugInfo(`✅ Successfully added ${addedCount} articles!`);
-                } else {
-                    setDebugInfo(`✅ Added ${addedCount} articles\n⚠️ Failed: ${errors.length}`);
-                }
-                
-                // Clear selection
+                setDebugInfo(`✅ Successfully added ${addedCount} articles!`);
                 setSelectedRssArticles(new Set());
             };
 
@@ -567,7 +564,6 @@
                     setArticles(loadedArticles);
                     setDebugInfo(`✅ Loaded ${loadedArticles.length} articles`);
                     
-                    // Load categories
                     const categorySnapshot = await db.collection('ml-settings').doc('categories').get();
                     if (categorySnapshot.exists) {
                         setCategories(categorySnapshot.data().list || ['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision', 'Neural Networks', 'NLP']);
@@ -582,14 +578,10 @@
 
             const saveArticleToFirebase = async (articleData) => {
                 try {
-                    console.log("Saving article:", articleData);
-                    
                     if (!db || !firebaseInitialized) {
                         throw new Error('Firebase not initialized');
                     }
-                    
                     const docRef = await db.collection('ml-articles').add(articleData);
-                    console.log("✅ Article saved with ID:", docRef.id);
                     return docRef.id;
                 } catch (e) {
                     console.error('❌ Save error:', e);
@@ -601,7 +593,6 @@
                 try {
                     if (!db || !firebaseInitialized) return;
                     await db.collection('ml-articles').doc(articleId).update(updates);
-                    console.log("✅ Article updated");
                 } catch (e) {
                     console.error('❌ Update error:', e);
                 }
@@ -611,7 +602,6 @@
                 try {
                     if (!db || !firebaseInitialized) return;
                     await db.collection('ml-articles').doc(articleId).delete();
-                    console.log("✅ Article deleted");
                 } catch (e) {
                     console.error('❌ Delete error:', e);
                 }
@@ -621,147 +611,8 @@
                 try {
                     if (!db || !firebaseInitialized) return;
                     await db.collection('ml-settings').doc('categories').set({ list: categoryList });
-                    console.log("✅ Categories saved");
                 } catch (e) {
                     console.error('❌ Category save error:', e);
-                }
-            };
-
-            // Enhanced web search with better mock data
-            const searchWeb = async (query) => {
-                setSearching(true);
-                setDebugInfo(`🔍 Searching for: ${query}...`);
-                
-                try {
-                    // Simulate search with more relevant results
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-                    
-                    const searchTopics = {
-                        'transformer': [
-                            {
-                                title: 'Attention Is All You Need - The Original Transformer Paper',
-                                description: 'Groundbreaking paper introducing the Transformer architecture that revolutionized NLP and deep learning.',
-                                url: 'https://arxiv.org/abs/1706.03762',
-                                imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
-                                source: 'ArXiv',
-                                publishedAt: new Date().toISOString()
-                            },
-                            {
-                                title: 'The Illustrated Transformer',
-                                description: 'Visual guide to understanding how transformers work with detailed explanations and diagrams.',
-                                url: 'https://jalammar.github.io/illustrated-transformer/',
-                                imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400',
-                                source: 'Blog',
-                                publishedAt: new Date().toISOString()
-                            }
-                        ],
-                        'neural': [
-                            {
-                                title: 'Neural Networks and Deep Learning',
-                                description: 'Comprehensive introduction to neural networks covering fundamentals and advanced architectures.',
-                                url: 'http://neuralnetworksanddeeplearning.com/',
-                                imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
-                                source: 'Free Online Book',
-                                publishedAt: new Date().toISOString()
-                            }
-                        ],
-                        'cnn': [
-                            {
-                                title: 'Understanding Convolutional Neural Networks',
-                                description: 'Deep dive into CNN architectures, their applications in computer vision, and best practices.',
-                                url: 'https://cs231n.github.io/',
-                                imageUrl: 'https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?w=400',
-                                source: 'Stanford CS231n',
-                                publishedAt: new Date().toISOString()
-                            }
-                        ]
-                    };
-                    
-                    // Find relevant results or provide generic ones
-                    let results = [];
-                    const lowerQuery = query.toLowerCase();
-                    
-                    for (const [key, value] of Object.entries(searchTopics)) {
-                        if (lowerQuery.includes(key)) {
-                            results = [...results, ...value];
-                        }
-                    }
-                    
-                    // If no specific matches, provide generic results
-                    if (results.length === 0) {
-                        results = [
-                            {
-                                title: `${query} - Research Papers on ArXiv`,
-                                description: `Latest research and developments in ${query}. Explore cutting-edge techniques and methodologies.`,
-                                url: `https://arxiv.org/search/?query=${encodeURIComponent(query)}&searchtype=all`,
-                                imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
-                                source: 'ArXiv',
-                                publishedAt: new Date().toISOString()
-                            },
-                            {
-                                title: `Understanding ${query}: Academic Perspective`,
-                                description: `Scholarly articles and papers about ${query} from leading researchers and institutions.`,
-                                url: `https://scholar.google.com/scholar?q=${encodeURIComponent(query)}`,
-                                imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=400',
-                                source: 'Google Scholar',
-                                publishedAt: new Date().toISOString()
-                            },
-                            {
-                                title: `${query} - Code Examples and Implementations`,
-                                description: `Practical implementations and code repositories for ${query} from the developer community.`,
-                                url: `https://github.com/search?q=${encodeURIComponent(query)}&type=repositories`,
-                                imageUrl: 'https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?w=400',
-                                source: 'GitHub',
-                                publishedAt: new Date().toISOString()
-                            },
-                            {
-                                title: `${query} Tutorial and Best Practices`,
-                                description: `Comprehensive guides and tutorials for mastering ${query} with real-world examples.`,
-                                url: `https://www.kaggle.com/search?q=${encodeURIComponent(query)}`,
-                                imageUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400',
-                                source: 'Kaggle',
-                                publishedAt: new Date().toISOString()
-                            }
-                        ];
-                    }
-                    
-                    setSearchResults(results);
-                    setDebugInfo(`✅ Found ${results.length} articles for "${query}"`);
-                } catch (error) {
-                    console.error('Search error:', error);
-                    setDebugInfo(`❌ Search error: ${error.message}`);
-                }
-                
-                setSearching(false);
-            };
-
-            const addArticleFromSearch = async (result) => {
-                try {
-                    setDebugInfo(`📥 Adding article: ${result.title}...`);
-                    
-                    const articleData = {
-                        title: result.title,
-                        url: result.url,
-                        description: result.description || '',
-                        imageUrl: result.imageUrl || 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400',
-                        category: selectedCategory === 'All Articles' || selectedCategory === 'Favorites' ? 'Machine Learning' : selectedCategory,
-                        favorite: false,
-                        notes: [],
-                        dateAdded: new Date().toISOString(),
-                        source: result.source || 'Web Search'
-                    };
-                    
-                    await saveArticleToFirebase(articleData);
-                    await loadArticlesFromFirebase();
-                    
-                    // Mark as added
-                    setAddedArticleUrls(prev => new Set([...prev, result.url]));
-                    
-                    setDebugInfo(`✅ Article added successfully!`);
-                    
-                } catch (error) {
-                    console.error('Error adding article:', error);
-                    setDebugInfo(`❌ Failed to add article: ${error.message}. Check Firebase permissions.`);
                 }
             };
 
@@ -920,7 +771,6 @@
 
             const moveToCategory = async (articleId, categoryName) => {
                 await updateArticleInFirebase(articleId, { category: categoryName });
-                
                 const updatedArticles = articles.map(a => 
                     a.id === articleId ? { ...a, category: categoryName } : a
                 );
@@ -1077,7 +927,6 @@
                     groups[key].push(article);
                 });
                 
-                // Sort groups by date (newest first)
                 const sortedGroups = Object.entries(groups).sort((a, b) => {
                     const dateA = new Date(groups[a[0]][0].archivedDate || groups[a[0]][0].dateAdded);
                     const dateB = new Date(groups[b[0]][0].archivedDate || groups[b[0]][0].dateAdded);
@@ -1106,12 +955,10 @@
             };
 
             const filteredArticles = sortArticles(articles.filter(article => {
-                // Hide archived articles from main view
                 if (article.archived && !showArchive) {
                     return false;
                 }
                 
-                // In archive view, only show archived articles
                 if (showArchive && !article.archived) {
                     return false;
                 }
@@ -1145,19 +992,18 @@
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
-                    {/* Web Search Modal */}
+                    {/* Web Search Modal - Mobile Optimized */}
                     {showWebSearch && (
-                        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowWebSearch(false)}>
-                            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                                <div className="p-6 border-b border-gray-700">
+                        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-2 md:p-4 overflow-y-auto" onClick={() => setShowWebSearch(false)}>
+                            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl md:rounded-3xl shadow-2xl w-full ${isMobile ? 'h-full' : 'max-w-4xl max-h-[90vh]'} overflow-hidden flex flex-col`} onClick={(e) => e.stopPropagation()}>
+                                <div className="p-4 md:p-6 border-b border-gray-700 flex-shrink-0">
                                     <div className="flex items-center justify-between mb-4">
-                                        <h2 className="text-2xl font-bold text-white">🔍 Search Articles</h2>
+                                        <h2 className="text-xl md:text-2xl font-bold text-white">🔍 Search Articles</h2>
                                         <div className="flex gap-2">
-                                            {user && (
+                                            {user && !isMobile && (
                                                 <button 
                                                     onClick={() => setShowSourceManager(!showSourceManager)} 
                                                     className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
-                                                    title="Manage Search Sources"
                                                 >
                                                     ⚙️ Sources
                                                 </button>
@@ -1166,180 +1012,189 @@
                                         </div>
                                     </div>
                                     
-                                    <div className="flex gap-2 mb-3">
+                                    <div className="space-y-3">
                                         <input 
                                             type="text" 
                                             value={webSearchQuery} 
                                             onChange={(e) => setWebSearchQuery(e.target.value)}
-                                            placeholder="e.g., transformer, neural networks, CNN, deep learning..."
-                                            className="flex-1 px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
-                                            onKeyPress={(e) => e.key === 'Enter' && searchWeb(webSearchQuery)}
+                                            placeholder="e.g., sustainable architecture, AI design..."
+                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
                                         />
-                                        <button 
-                                            onClick={() => searchWeb(webSearchQuery)} 
-                                            disabled={searching || !webSearchQuery.trim()}
-                                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl disabled:opacity-50 transition-all"
-                                        >
-                                            {searching ? '⏳ Searching...' : '🔍 Search'}
-                                        </button>
-                                        {searchResults.length > 0 && (
-                                            <button 
-                                                onClick={clearSearchResults}
-                                                className="px-4 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all"
-                                                title="Clear search results"
-                                            >
-                                                🧹 Clear
-                                            </button>
-                                        )}
-                                    </div>
-                                    
-                                    {/* RSS Feed Sources */}
-                                    <div className="border-t border-gray-600 pt-3">
-                                        <div className="flex flex-wrap gap-2 items-center">
-                                            <span className="text-gray-400 text-sm mr-2">📰 Browse latest from:</span>
-                                            {customSources.filter(s => s.rss).length > 0 && (
-                                                <button
-                                                    onClick={fetchAllRssFeeds}
-                                                    disabled={loadingRss}
-                                                    className="px-4 py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-sm rounded-lg transition-all disabled:opacity-50 font-bold shadow-lg border-2 border-green-400"
-                                                    title="Fetch articles from ALL RSS feeds at once"
-                                                >
-                                                    🌐 Fetch All ({customSources.filter(s => s.rss).length} feeds)
-                                                </button>
-                                            )}
-                                            {customSources.filter(s => s.rss).map((source, index) => (
-                                                <button
-                                                    key={index}
-                                                    onClick={() => fetchRssFeed(source)}
-                                                    disabled={loadingRss}
-                                                    className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-sm rounded-lg transition-all disabled:opacity-50 font-medium shadow-md"
-                                                    title={`Load latest articles from ${source.name} RSS feed`}
-                                                >
-                                                    {source.icon} {source.name}
-                                                </button>
-                                            ))}
-                                            {customSources.filter(s => s.rss).length === 0 && (
-                                                <span className="text-gray-500 text-xs italic">No RSS feeds configured</span>
-                                            )}
+                                        
+                                        <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3">
+                                            <p className="text-blue-200 text-sm font-semibold mb-2">💡 How to search:</p>
+                                            <p className="text-blue-100 text-xs mb-2">1. Enter your search term above</p>
+                                            <p className="text-blue-100 text-xs mb-2">2. Click a source below to search that site in a new tab</p>
+                                            <p className="text-blue-100 text-xs">3. Or use RSS feeds to browse latest articles</p>
                                         </div>
-                                    </div>
-                                    
-                                    {/* Source Manager */}
-                                    {showSourceManager && user && (
-                                        <div className="mt-4 p-4 bg-gray-700/50 rounded-xl border border-gray-600">
-                                            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
-                                                <span>🔗</span> Manage Search Sources
-                                            </h3>
-                                            
-                                            <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                                        
+                                        {/* Search Sources */}
+                                        <div className="border-t border-gray-600 pt-3">
+                                            <p className="text-gray-400 text-xs font-semibold mb-2 uppercase">🔍 Search in:</p>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                                 {customSources.map((source, index) => (
-                                                    <div key={index} className="flex items-center justify-between bg-gray-800/50 p-2 rounded-lg">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-2xl">{source.icon}</span>
-                                                            <div>
-                                                                <p className="text-white font-medium text-sm">{source.name}</p>
-                                                                <p className="text-gray-400 text-xs truncate max-w-xs">{source.url}</p>
-                                                                {source.rss && <p className="text-green-400 text-xs">📰 RSS: {source.rss}</p>}
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => removeCustomSource(index)}
-                                                            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition-all"
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    </div>
+                                                    <button
+                                                        key={index}
+                                                        onClick={() => searchWebWithSource(source)}
+                                                        className="px-3 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm rounded-lg transition-all font-medium shadow-md flex items-center justify-center gap-1"
+                                                    >
+                                                        <span>{source.icon}</span>
+                                                        <span className="truncate">{source.name}</span>
+                                                    </button>
                                                 ))}
                                             </div>
-                                            
-                                            <div className="flex gap-2 flex-wrap">
-                                                <input
-                                                    type="text"
-                                                    value={newSource.icon}
-                                                    onChange={(e) => setNewSource({...newSource, icon: e.target.value})}
-                                                    placeholder="Icon"
-                                                    className="w-16 px-2 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none text-center"
-                                                />
-                                                <input
-                                                    type="text"
-                                                    value={newSource.name}
-                                                    onChange={(e) => setNewSource({...newSource, name: e.target.value})}
-                                                    placeholder="Source name (e.g., ArchDaily)"
-                                                    className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
-                                                />
-                                                <input
-                                                    type="url"
-                                                    value={newSource.url}
-                                                    onChange={(e) => setNewSource({...newSource, url: e.target.value})}
-                                                    placeholder="Search URL (e.g., https://site.com/search?q=)"
-                                                    className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
-                                                />
-                                                <input
-                                                    type="url"
-                                                    value={newSource.rss}
-                                                    onChange={(e) => setNewSource({...newSource, rss: e.target.value})}
-                                                    placeholder="RSS URL (optional)"
-                                                    className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
-                                                />
-                                                <button
-                                                    onClick={addCustomSource}
-                                                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all"
-                                                >
-                                                    ➕ Add
-                                                </button>
+                                        </div>
+                                        
+                                        {/* RSS Feeds */}
+                                        <div className="border-t border-gray-600 pt-3">
+                                            <p className="text-gray-400 text-xs font-semibold mb-2 uppercase">📰 Browse RSS feeds:</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {customSources.filter(s => s.rss).length > 0 && (
+                                                    <button
+                                                        onClick={fetchAllRssFeeds}
+                                                        disabled={loadingRss}
+                                                        className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-xs md:text-sm rounded-lg transition-all disabled:opacity-50 font-bold shadow-lg"
+                                                    >
+                                                        🌐 Fetch All ({customSources.filter(s => s.rss).length})
+                                                    </button>
+                                                )}
+                                                {customSources.filter(s => s.rss).map((source, index) => (
+                                                    <button
+                                                        key={index}
+                                                        onClick={() => fetchRssFeed(source)}
+                                                        disabled={loadingRss}
+                                                        className="px-3 py-2 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white text-xs md:text-sm rounded-lg transition-all disabled:opacity-50 font-medium shadow-md"
+                                                    >
+                                                        {source.icon} {source.name}
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
-                                    )}
-                                    
-                                    {/* RSS Feed Display */}
-                                    {showRssFeed && (
-                                        <div className="mt-4 p-4 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-xl border border-orange-500/30">
-                                            <div className="flex items-center justify-between mb-3">
-                                                <h3 className="text-white font-bold flex items-center gap-2">
-                                                    <span>{selectedRssSource?.icon || '📰'}</span> 
-                                                    {selectedRssSource?.name === 'All Sources' 
-                                                        ? `Latest from All Sources (${rssFeedArticles.length} articles)` 
-                                                        : `Latest from ${selectedRssSource?.name}`}
+                                        
+                                        {/* Source Manager - Mobile Friendly */}
+                                        {user && isMobile && (
+                                            <button 
+                                                onClick={() => setShowSourceManager(!showSourceManager)} 
+                                                className="w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-xl transition-all font-semibold"
+                                            >
+                                                ⚙️ Manage Sources
+                                            </button>
+                                        )}
+                                        
+                                        {showSourceManager && user && (
+                                            <div className="p-4 bg-gray-700/50 rounded-xl border border-gray-600">
+                                                <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+                                                    <span>🔗</span> Manage Search Sources
                                                 </h3>
-                                                <div className="flex gap-2">
+                                                
+                                                <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                                                    {customSources.map((source, index) => (
+                                                        <div key={index} className="flex items-center justify-between bg-gray-800/50 p-2 rounded-lg">
+                                                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                                <span className="text-xl md:text-2xl">{source.icon}</span>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <p className="text-white font-medium text-xs md:text-sm truncate">{source.name}</p>
+                                                                    {source.rss && <p className="text-green-400 text-xs">📰 RSS</p>}
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => removeCustomSource(index)}
+                                                                className="px-2 md:px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-all flex-shrink-0"
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                
+                                                <div className="space-y-2">
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={newSource.icon}
+                                                            onChange={(e) => setNewSource({...newSource, icon: e.target.value})}
+                                                            placeholder="Icon"
+                                                            className="w-16 px-2 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none text-center"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            value={newSource.name}
+                                                            onChange={(e) => setNewSource({...newSource, name: e.target.value})}
+                                                            placeholder="Name"
+                                                            className="flex-1 px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
+                                                        />
+                                                    </div>
+                                                    <input
+                                                        type="url"
+                                                        value={newSource.url}
+                                                        onChange={(e) => setNewSource({...newSource, url: e.target.value})}
+                                                        placeholder="Search URL (e.g., https://site.com/search?q=)"
+                                                        className="w-full px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
+                                                    />
+                                                    <input
+                                                        type="url"
+                                                        value={newSource.rss}
+                                                        onChange={(e) => setNewSource({...newSource, rss: e.target.value})}
+                                                        placeholder="RSS URL (optional)"
+                                                        className="w-full px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
+                                                    />
                                                     <button
-                                                        onClick={closeRssFeed}
-                                                        className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
+                                                        onClick={addCustomSource}
+                                                        className="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all"
                                                     >
-                                                        Close
+                                                        ➕ Add Source
                                                     </button>
                                                 </div>
                                             </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* RSS Feed Display - Mobile Optimized */}
+                                {showRssFeed && (
+                                    <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                                        <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-xl border border-orange-500/30 p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-white font-bold text-sm md:text-base flex items-center gap-2">
+                                                    <span>{selectedRssSource?.icon || '📰'}</span> 
+                                                    {selectedRssSource?.name}
+                                                </h3>
+                                                <button
+                                                    onClick={() => setShowRssFeed(false)}
+                                                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-all"
+                                                >
+                                                    Close
+                                                </button>
+                                            </div>
                                             
-                                            {/* Bulk Selection Controls */}
                                             {user && rssFeedArticles.length > 0 && (
                                                 <div className="mb-3 p-3 bg-gray-700/50 rounded-lg border border-gray-600">
-                                                    <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="flex flex-col md:flex-row md:items-center gap-2">
                                                         <span className="text-white text-sm font-semibold">
-                                                            {selectedRssArticles.size > 0 
-                                                                ? `${selectedRssArticles.size} selected` 
-                                                                : 'Select articles:'}
+                                                            {selectedRssArticles.size > 0 ? `${selectedRssArticles.size} selected` : 'Select articles:'}
                                                         </span>
-                                                        <button
-                                                            onClick={selectAllRssArticles}
-                                                            className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold rounded transition-all"
-                                                        >
-                                                            ☑️ Select All
-                                                        </button>
-                                                        <button
-                                                            onClick={deselectAllRssArticles}
-                                                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white text-xs font-semibold rounded transition-all"
-                                                        >
-                                                            ☐ Clear
-                                                        </button>
-                                                        {selectedRssArticles.size > 0 && (
+                                                        <div className="flex flex-wrap gap-2">
                                                             <button
-                                                                onClick={addSelectedRssArticles}
-                                                                className="ml-auto px-4 py-1.5 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-sm font-bold rounded-lg transition-all shadow-md"
+                                                                onClick={selectAllRssArticles}
+                                                                className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold rounded transition-all"
                                                             >
-                                                                ➕ Add {selectedRssArticles.size} to Library
+                                                                ☑️ All
                                                             </button>
-                                                        )}
+                                                            <button
+                                                                onClick={deselectAllRssArticles}
+                                                                className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 text-white text-xs font-semibold rounded transition-all"
+                                                            >
+                                                                ☐ Clear
+                                                            </button>
+                                                            {selectedRssArticles.size > 0 && (
+                                                                <button
+                                                                    onClick={addSelectedRssArticles}
+                                                                    className="flex-1 md:flex-none px-4 py-1.5 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white text-xs font-bold rounded-lg transition-all shadow-md"
+                                                                >
+                                                                    ➕ Add {selectedRssArticles.size}
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
@@ -1347,44 +1202,22 @@
                                             {loadingRss ? (
                                                 <div className="text-center py-8">
                                                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-                                                    <p className="text-white">Loading RSS feed...</p>
+                                                    <p className="text-white text-sm">Loading RSS feed...</p>
                                                 </div>
                                             ) : rssFeedArticles.length === 0 ? (
                                                 <div className="text-center py-8">
-                                                    <p className="text-gray-300 mb-4 font-bold text-lg">❌ No articles loaded</p>
-                                                    <div className="p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-left max-w-2xl mx-auto">
-                                                        <p className="text-yellow-200 text-sm font-bold mb-3">🔧 Troubleshooting:</p>
-                                                        <div className="text-yellow-100 text-xs space-y-2">
-                                                            <p className="font-semibold">Common fixes:</p>
-                                                            <ul className="list-disc list-inside space-y-1 ml-2">
-                                                                <li>Disable browser ad blockers and privacy extensions</li>
-                                                                <li>Try in Incognito/Private browsing mode</li>
-                                                                <li>Use a VPN if on corporate/school network</li>
-                                                                <li>Try from a different device or network</li>
-                                                                <li>Check browser console (F12) for specific errors</li>
-                                                            </ul>
-                                                            
-                                                            {selectedRssSource?.name !== 'All Sources' && selectedRssSource && customSources.find(s => s.name === selectedRssSource.name)?.rss && (
-                                                                <div className="mt-3 pt-3 border-t border-yellow-500/30">
-                                                                    <p className="font-semibold mb-1">Manual check:</p>
-                                                                    <p className="text-xs break-all bg-black/30 p-2 rounded">
-                                                                        {customSources.find(s => s.name === selectedRssSource.name).rss}
-                                                                    </p>
-                                                                    <a 
-                                                                        href={customSources.find(s => s.name === selectedRssSource.name).rss}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="inline-block mt-2 px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs"
-                                                                    >
-                                                                        🔗 Open Feed in Browser
-                                                                    </a>
-                                                                </div>
-                                                            )}
-                                                        </div>
+                                                    <p className="text-gray-300 mb-4 font-bold">❌ No articles loaded</p>
+                                                    <div className="p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg text-left">
+                                                        <p className="text-yellow-200 text-sm font-bold mb-2">🔧 Try:</p>
+                                                        <ul className="text-yellow-100 text-xs space-y-1 list-disc list-inside">
+                                                            <li>Disable ad blocker</li>
+                                                            <li>Try individual feeds</li>
+                                                            <li>Use different network</li>
+                                                        </ul>
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="space-y-3 max-h-96 overflow-y-auto">
+                                                <div className="space-y-3">
                                                     {rssFeedArticles.map((article, index) => {
                                                         const isAdded = addedArticleUrls.has(article.url);
                                                         const isSelected = selectedRssArticles.has(article.url);
@@ -1393,46 +1226,34 @@
                                                             <div 
                                                                 key={index} 
                                                                 className={`bg-gray-800/80 rounded-xl p-3 border transition-all ${
-                                                                    isAdded 
-                                                                        ? 'border-green-500/50 bg-green-900/20' 
-                                                                        : isSelected 
-                                                                            ? 'border-blue-500 bg-blue-900/20' 
-                                                                            : 'border-gray-600 hover:border-orange-500'
+                                                                    isAdded ? 'border-green-500/50 bg-green-900/20' : 
+                                                                    isSelected ? 'border-blue-500 bg-blue-900/20' : 
+                                                                    'border-gray-600'
                                                                 }`}
                                                             >
                                                                 <div className="flex gap-3">
-                                                                    {/* Checkbox */}
                                                                     {user && !isAdded && (
-                                                                        <div className="flex-shrink-0 pt-1">
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={isSelected}
-                                                                                onChange={() => toggleRssArticleSelection(article.url)}
-                                                                                className="w-5 h-5 cursor-pointer rounded accent-blue-500"
-                                                                            />
-                                                                        </div>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() => toggleRssArticleSelection(article.url)}
+                                                                            className="w-5 h-5 flex-shrink-0 mt-1 cursor-pointer rounded accent-blue-500"
+                                                                        />
                                                                     )}
                                                                     
-                                                                    {/* Image */}
                                                                     <img 
                                                                         src={article.imageUrl} 
                                                                         alt={article.title}
-                                                                        className="w-24 h-24 object-cover rounded-lg flex-shrink-0"
+                                                                        className="w-20 h-20 md:w-24 md:h-24 object-cover rounded-lg flex-shrink-0"
                                                                         onError={(e) => {
                                                                             e.target.src = 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400';
                                                                         }}
                                                                     />
                                                                     
-                                                                    {/* Content */}
                                                                     <div className="flex-1 min-w-0">
                                                                         <h4 className="text-white font-semibold text-sm mb-1 line-clamp-2">{article.title}</h4>
                                                                         <p className="text-gray-300 text-xs mb-2 line-clamp-2">{article.description}</p>
-                                                                        <div className="flex items-center gap-3 flex-wrap text-xs">
-                                                                            {selectedRssSource?.name === 'All Sources' && (
-                                                                                <span className="px-2 py-0.5 bg-blue-500/30 text-blue-300 rounded-full font-medium">
-                                                                                    {article.source}
-                                                                                </span>
-                                                                            )}
+                                                                        <div className="flex flex-wrap items-center gap-2 text-xs">
                                                                             <span className="text-gray-400">
                                                                                 {new Date(article.publishedAt).toLocaleDateString()}
                                                                             </span>
@@ -1442,29 +1263,8 @@
                                                                                 rel="noopener noreferrer"
                                                                                 className="text-orange-400 hover:text-orange-300"
                                                                             >
-                                                                                🔗 Read Article
+                                                                                🔗 Read
                                                                             </a>
-                                                                            {isAdded ? (
-                                                                                <span className="ml-auto px-3 py-1 bg-green-500/30 text-green-300 text-xs font-semibold rounded-lg border border-green-500/50">
-                                                                                    ✓ Added to Library
-                                                                                </span>
-                                                                            ) : user && (
-                                                                                <button
-                                                                                    onClick={() => {
-                                                                                        addArticleFromSearch({
-                                                                                            title: article.title,
-                                                                                            url: article.url,
-                                                                                            description: article.description,
-                                                                                            imageUrl: article.imageUrl,
-                                                                                            source: article.source,
-                                                                                            publishedAt: article.publishedAt
-                                                                                        });
-                                                                                    }}
-                                                                                    className="ml-auto px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-all"
-                                                                                >
-                                                                                    ➕ Add
-                                                                                </button>
-                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1474,73 +1274,24 @@
                                                 </div>
                                             )}
                                         </div>
-                                    )}
-                                </div>
-                                
-                                <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
-                                    {searchResults.length === 0 ? (
-                                        <div className="text-center py-12">
-                                            <div className="text-6xl mb-4">🔎</div>
-                                            <p className="text-gray-400 text-lg mb-2">Enter a search term or browse RSS feeds</p>
-                                            <p className="text-gray-500 text-sm">Try searching for: <span className="text-blue-400">"transformer"</span>, <span className="text-blue-400">"CNN"</span>, <span className="text-blue-400">"neural networks"</span></p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-4">
-                                            {searchResults.map((result, index) => (
-                                                <div key={index} className="bg-gradient-to-br from-gray-700 to-gray-800 rounded-2xl p-4 border border-gray-600 hover:border-blue-500 transition-all">
-                                                    <div className="flex gap-4">
-                                                        <img 
-                                                            src={result.imageUrl} 
-                                                            alt={result.title}
-                                                            className="w-32 h-32 object-cover rounded-xl flex-shrink-0"
-                                                            onError={(e) => {
-                                                                e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
-                                                            }}
-                                                        />
-                                                        <div className="flex-1 min-w-0">
-                                                            <h3 className="text-white font-bold text-lg mb-2 line-clamp-2">{result.title}</h3>
-                                                            <p className="text-gray-300 text-sm mb-3 line-clamp-2">{result.description}</p>
-                                                            <div className="flex items-center gap-3 flex-wrap">
-                                                                <span className="text-xs text-blue-400 font-medium">📰 {result.source}</span>
-                                                                <span className="text-xs text-gray-400">{new Date(result.publishedAt).toLocaleDateString()}</span>
-                                                                <a 
-                                                                    href={result.url} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer"
-                                                                    className="text-xs text-blue-400 hover:text-blue-300 transition-all"
-                                                                >
-                                                                    🔗 View Source
-                                                                </a>
-                                                                <button 
-                                                                    onClick={() => addArticleFromSearch(result)}
-                                                                    className="ml-auto px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-semibold rounded-lg hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
-                                                                >
-                                                                    ➕ Add to Library
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
 
-                    {/* Manual Add Article Modal */}
+                    {/* Manual Add Article Modal - Mobile Optimized */}
                     {showAddArticle && (
-                        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowAddArticle(false)}>
-                            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-3xl shadow-2xl max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-                                <div className="p-6 border-b border-gray-700">
+                        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-2 md:p-4 overflow-y-auto" onClick={() => setShowAddArticle(false)}>
+                            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl md:rounded-3xl shadow-2xl w-full ${isMobile ? 'h-full flex flex-col' : 'max-w-2xl'}`} onClick={(e) => e.stopPropagation()}>
+                                <div className="p-4 md:p-6 border-b border-gray-700 flex-shrink-0">
                                     <div className="flex items-center justify-between">
-                                        <h2 className="text-2xl font-bold text-white">📝 Add Article Manually</h2>
+                                        <h2 className="text-xl md:text-2xl font-bold text-white">📝 Add Article</h2>
                                         <button onClick={() => setShowAddArticle(false)} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
                                     </div>
                                 </div>
                                 
-                                <form onSubmit={handleManualArticleSubmit} className="p-6 space-y-4">
+                                <form onSubmit={handleManualArticleSubmit} className={`p-4 md:p-6 space-y-4 ${isMobile ? 'flex-1 overflow-y-auto' : ''}`}>
                                     <div>
                                         <label className="block text-white font-semibold mb-2">Title *</label>
                                         <input 
@@ -1570,7 +1321,7 @@
                                         <textarea 
                                             value={newArticle.description}
                                             onChange={(e) => setNewArticle({...newArticle, description: e.target.value})}
-                                            placeholder="Brief description or summary..."
+                                            placeholder="Brief description..."
                                             className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 h-24 transition-all"
                                         />
                                     </div>
@@ -1581,7 +1332,7 @@
                                             type="url" 
                                             value={newArticle.imageUrl}
                                             onChange={(e) => setNewArticle({...newArticle, imageUrl: e.target.value})}
-                                            placeholder="https://... (will use default if empty)"
+                                            placeholder="https://..."
                                             className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
                                         />
                                     </div>
@@ -1599,7 +1350,7 @@
                                         </select>
                                     </div>
                                     
-                                    <div className="flex gap-3 pt-4">
+                                    <div className="flex flex-col md:flex-row gap-3 pt-4">
                                         <button 
                                             type="submit"
                                             className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all"
@@ -1619,24 +1370,24 @@
                         </div>
                     )}
 
-                    {/* New Category Modal */}
+                    {/* New Category Modal - Mobile Optimized */}
                     {showNewCategory && user && (
                         <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4" onClick={() => setShowNewCategory(false)}>
-                            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-3xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-                                <div className="p-6 border-b border-gray-700">
+                            <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl md:rounded-3xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+                                <div className="p-4 md:p-6 border-b border-gray-700">
                                     <div className="flex items-center justify-between">
-                                        <h2 className="text-2xl font-bold text-white">📁 Create New Category</h2>
+                                        <h2 className="text-xl md:text-2xl font-bold text-white">📁 New Category</h2>
                                         <button onClick={() => { setShowNewCategory(false); setNewCategoryName(''); }} className="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white rounded-full transition-all">✕</button>
                                     </div>
                                 </div>
                                 
-                                <div className="p-6">
+                                <div className="p-4 md:p-6">
                                     <label className="block text-white font-semibold mb-2">Category Name</label>
                                     <input 
                                         type="text" 
                                         value={newCategoryName} 
                                         onChange={(e) => setNewCategoryName(e.target.value)} 
-                                        placeholder="e.g., Reinforcement Learning, Computer Vision..." 
+                                        placeholder="e.g., Sustainable Design..." 
                                         className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all mb-4"
                                         onKeyPress={(e) => {
                                             if (e.key === 'Enter') {
@@ -1647,13 +1398,13 @@
                                         autoFocus
                                     />
                                     
-                                    <div className="flex gap-3">
+                                    <div className="flex flex-col md:flex-row gap-3">
                                         <button 
                                             onClick={() => { createCategory(); setShowNewCategory(false); }}
                                             disabled={!newCategoryName.trim()}
                                             className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-semibold rounded-xl hover:from-purple-600 hover:to-pink-700 disabled:opacity-50 transition-all"
                                         >
-                                            ✅ Create Category
+                                            ✅ Create
                                         </button>
                                         <button 
                                             onClick={() => { setShowNewCategory(false); setNewCategoryName(''); }}
@@ -1662,77 +1413,77 @@
                                             Cancel
                                         </button>
                                     </div>
-                                    
-                                    <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-lg">
-                                        <p className="text-blue-200 text-sm">
-                                            💡 <strong>Tip:</strong> Create categories to organize your articles by topic, technology, or any system that works for you!
-                                        </p>
-                                    </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Header */}
+                    {/* Header - Mobile Optimized */}
                     <div className="bg-gradient-to-b from-gray-900/90 to-transparent shadow-2xl border-b border-gray-700/50 backdrop-blur-lg">
-                        <div className="max-w-7xl mx-auto px-4 py-6">
-                            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
-                                <div>
-                                    <h1 className="text-3xl md:text-4xl font-bold text-white flex items-center gap-3">
-                                        🏗️ Architecture & AI Hub
-                                    </h1>
-                                    <p className="text-blue-400 mt-1 font-medium">Your curated collection of Architecture & AI articles</p>
+                        <div className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6">
+                            <div className="flex flex-col gap-3 md:gap-4 mb-4 md:mb-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h1 className="text-2xl md:text-4xl font-bold text-white flex items-center gap-2">
+                                            🏗️ {isMobile ? 'A&AI Hub' : 'Architecture & AI Hub'}
+                                        </h1>
+                                        {!isMobile && <p className="text-blue-400 mt-1 font-medium text-sm">Your curated collection</p>}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => loadArticlesFromFirebase()} className="w-10 h-10 bg-gray-800/80 text-white hover:bg-gray-700 rounded-full transition-all shadow-lg flex items-center justify-center backdrop-blur-sm">
+                                            🔄
+                                        </button>
+                                        {user && (
+                                            <button 
+                                                onClick={signOut}
+                                                className="w-10 h-10 md:px-4 md:w-auto bg-gray-800/80 text-white hover:bg-gray-700 font-semibold flex items-center justify-center gap-2 rounded-full md:rounded-xl transition-all shadow-lg backdrop-blur-sm"
+                                                title={`Sign out (${user.email})`}
+                                            >
+                                                <span className="text-lg">👤</span>
+                                                {!isMobile && <span>Sign Out</span>}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="flex gap-2 flex-wrap">
+                                
+                                <div className="flex flex-col md:flex-row gap-2">
                                     {user ? (
                                         <>
                                             <button 
                                                 onClick={() => setShowWebSearch(true)} 
-                                                className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
+                                                className="flex-1 md:flex-none px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 font-semibold flex items-center justify-center gap-2 rounded-xl transition-all shadow-lg"
                                             >
                                                 <span className="text-xl">🔍</span>
-                                                Search Web
+                                                {isMobile ? 'Search' : 'Search Web'}
                                             </button>
                                             <button 
                                                 onClick={() => setShowAddArticle(true)} 
-                                                className="px-4 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
+                                                className="flex-1 md:flex-none px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 font-semibold flex items-center justify-center gap-2 rounded-xl transition-all shadow-lg"
                                             >
                                                 <span className="text-lg">➕</span>
-                                                Add Article
+                                                {isMobile ? 'Add' : 'Add Article'}
                                             </button>
-                                            <button 
-                                                onClick={() => setShowNewCategory(true)} 
-                                                className="px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg"
-                                                title="Create new category"
-                                            >
-                                                <span className="text-lg">📁</span>
-                                                <span className="hidden md:inline">New Category</span>
-                                            </button>
+                                            {!isMobile && (
+                                                <button 
+                                                    onClick={() => setShowNewCategory(true)} 
+                                                    className="px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700 font-semibold flex items-center justify-center gap-2 rounded-xl transition-all shadow-lg"
+                                                >
+                                                    <span className="text-lg">📁</span>
+                                                    <span>Category</span>
+                                                </button>
+                                            )}
                                         </>
                                     ) : (
                                         <button 
                                             onClick={signInWithGoogle}
                                             disabled={authLoading}
-                                            className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg disabled:opacity-50"
+                                            className="w-full px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 font-semibold flex items-center justify-center gap-2 rounded-xl transition-all shadow-lg disabled:opacity-50"
                                         >
                                             <span className="text-lg">🔐</span>
-                                            {authLoading ? 'Loading...' : 'Sign In to Add Articles'}
+                                            {authLoading ? 'Loading...' : (isMobile ? 'Sign In' : 'Sign In to Add Articles')}
                                         </button>
                                     )}
-                                    <button onClick={() => loadArticlesFromFirebase()} className="w-10 h-10 bg-gray-800/80 text-white hover:bg-gray-700 rounded-full transition-all shadow-lg flex items-center justify-center backdrop-blur-sm">
-                                        🔄
-                                    </button>
-                                    {user && (
-                                        <button 
-                                            onClick={signOut}
-                                            className="px-4 py-2.5 bg-gray-800/80 text-white hover:bg-gray-700 font-semibold flex items-center gap-2 rounded-xl transition-all shadow-lg backdrop-blur-sm"
-                                            title={`Sign out (${user.email})`}
-                                        >
-                                            <span className="text-lg">👤</span>
-                                            <span className="hidden md:inline">Sign Out</span>
-                                        </button>
-                                    )}
-                                    <div className="flex bg-gray-800/80 rounded-full p-1 backdrop-blur-sm shadow-lg">
+                                    <div className="flex bg-gray-800/80 rounded-full p-1 backdrop-blur-sm shadow-lg md:ml-auto">
                                         <button onClick={() => setView('grid')} className={`w-10 h-10 rounded-full transition-all ${view === 'grid' ? 'bg-blue-500 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>
                                             ⊞
                                         </button>
@@ -1744,12 +1495,12 @@
                             </div>
 
                             {debugInfo && (
-                                <div className={`mb-4 p-4 border rounded-2xl backdrop-blur-sm ${
+                                <div className={`mb-4 p-3 md:p-4 border rounded-xl md:rounded-2xl backdrop-blur-sm ${
                                     debugInfo.includes('❌') ? 'bg-red-500/20 text-red-200 border-red-500/30' :
                                     debugInfo.includes('⚠️') ? 'bg-yellow-500/20 text-yellow-200 border-yellow-500/30' :
                                     'bg-blue-500/20 text-blue-200 border-blue-500/30'
                                 }`}>
-                                    <pre className="font-semibold text-sm whitespace-pre-wrap font-sans">{debugInfo}</pre>
+                                    <pre className="font-semibold text-xs md:text-sm whitespace-pre-wrap font-sans">{debugInfo}</pre>
                                 </div>
                             )}
 
@@ -1759,57 +1510,57 @@
                                     value={searchTerm} 
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     placeholder="🔎 Search articles..."
-                                    className="flex-1 px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium focus:border-blue-500 transition-all"
+                                    className="flex-1 px-4 md:px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium focus:border-blue-500 transition-all"
                                 />
-                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium">
-                                    <option value="date-desc">🆕 Newest First</option>
-                                    <option value="date-asc">🕐 Oldest First</option>
-                                    <option value="title-asc">🔤 Title (A-Z)</option>
-                                    <option value="title-desc">🔡 Title (Z-A)</option>
-                                    <option value="category">📁 By Category</option>
+                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-4 md:px-5 py-3 bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm shadow-lg font-medium text-sm md:text-base">
+                                    <option value="date-desc">🆕 Newest</option>
+                                    <option value="date-asc">🕐 Oldest</option>
+                                    <option value="title-asc">🔤 A-Z</option>
+                                    <option value="title-desc">🔡 Z-A</option>
+                                    <option value="category">📁 Category</option>
                                 </select>
                             </div>
                         </div>
                     </div>
 
-                    <div className="max-w-7xl mx-auto px-4 py-6">
-                        {/* Categories */}
-                        <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-5 mb-6 rounded-2xl backdrop-blur-sm shadow-2xl">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <h3 className="text-xs font-bold text-blue-400 uppercase tracking-wider mr-2">Categories</h3>
+                    <div className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6">
+                        {/* Categories - Mobile Optimized */}
+                        <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-3 md:p-5 mb-4 md:mb-6 rounded-xl md:rounded-2xl backdrop-blur-sm shadow-2xl">
+                            <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+                                <h3 className="text-xs font-bold text-blue-400 uppercase tracking-wider mr-2 w-full md:w-auto mb-1 md:mb-0">Categories</h3>
                                 
                                 <button 
                                     onClick={() => { setSelectedCategory('All Articles'); setShowArchive(false); }} 
-                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === 'All Articles' && !showArchive ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                    className={`px-3 md:px-4 py-2 whitespace-nowrap font-semibold text-xs md:text-sm rounded-full transition-all shadow-md ${selectedCategory === 'All Articles' && !showArchive ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                 >
                                     📚 All ({articles.filter(a => !a.archived).length})
                                 </button>
                                 
                                 <button 
                                     onClick={() => { setSelectedCategory('Favorites'); setShowArchive(false); }} 
-                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === 'Favorites' && !showArchive ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                    className={`px-3 md:px-4 py-2 whitespace-nowrap font-semibold text-xs md:text-sm rounded-full transition-all shadow-md ${selectedCategory === 'Favorites' && !showArchive ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                 >
-                                    ⭐ Favorites ({articles.filter(a => a.favorite && !a.archived).length})
+                                    ⭐ {isMobile ? articles.filter(a => a.favorite && !a.archived).length : `Favorites (${articles.filter(a => a.favorite && !a.archived).length})`}
                                 </button>
                                 
                                 <button 
                                     onClick={() => { setShowArchive(true); setSelectedCategory('All Articles'); }} 
-                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${showArchive ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                    className={`px-3 md:px-4 py-2 whitespace-nowrap font-semibold text-xs md:text-sm rounded-full transition-all shadow-md ${showArchive ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                 >
-                                    📦 Archive ({articles.filter(a => a.archived).length})
+                                    📦 {isMobile ? articles.filter(a => a.archived).length : `Archive (${articles.filter(a => a.archived).length})`}
                                 </button>
                                 
-                                <div className="w-px h-6 bg-gray-600/50"></div>
+                                {!isMobile && <div className="w-px h-6 bg-gray-600/50"></div>}
                                 
                                 {[...categories].sort((a, b) => a.localeCompare(b)).map(category => (
                                     <div key={category} className="flex items-center group">
                                         <button 
                                             onClick={() => { setSelectedCategory(category); setShowArchive(false); }} 
-                                            className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === category && !showArchive ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                            className={`px-3 md:px-4 py-2 whitespace-nowrap font-semibold text-xs md:text-sm rounded-full transition-all shadow-md ${selectedCategory === category && !showArchive ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                         >
                                             📂 {category} ({articles.filter(a => a.category === category && !a.archived).length})
                                         </button>
-                                        {user && (
+                                        {user && !isMobile && (
                                             <button 
                                                 onClick={() => deleteCategory(category)} 
                                                 className="opacity-0 group-hover:opacity-100 ml-1 w-7 h-7 flex items-center justify-center text-red-400 hover:text-red-300 text-sm bg-gray-800/60 rounded-full transition-all"
@@ -1821,37 +1572,35 @@
                                     </div>
                                 ))}
                                 
-                                <div className="w-px h-6 bg-gray-600/50"></div>
-                                
-                                {user && (
+                                {user && isMobile && (
                                     <button 
                                         onClick={() => setShowNewCategory(true)} 
-                                        className="px-4 py-2 bg-gray-800/60 text-blue-400 hover:bg-gray-700/60 font-semibold text-sm rounded-full transition-all shadow-md"
+                                        className="px-3 py-2 bg-gray-800/60 text-blue-400 hover:bg-gray-700/60 font-semibold text-xs rounded-full transition-all shadow-md"
                                     >
-                                        ➕ New Category
+                                        ➕
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        {/* Selected Actions */}
+                        {/* Selected Actions - Mobile Optimized */}
                         {selectedArticles.size > 0 && (
-                            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/80 border border-blue-500/30 p-4 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 rounded-2xl backdrop-blur-md shadow-2xl">
-                                <span className="text-white font-bold text-lg">{selectedArticles.size} Selected</span>
+                            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/80 border border-blue-500/30 p-3 md:p-4 mb-4 md:mb-6 flex flex-col gap-3 rounded-xl md:rounded-2xl backdrop-blur-md shadow-2xl">
+                                <span className="text-white font-bold text-base md:text-lg">{selectedArticles.size} Selected</span>
                                 <div className="flex flex-wrap gap-2">
                                     {!showArchive && (
-                                        <button onClick={archiveSelected} className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-600 hover:to-orange-700 text-sm font-semibold rounded-full transition-all shadow-lg">
+                                        <button onClick={archiveSelected} className="flex-1 md:flex-none px-3 md:px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-600 hover:to-orange-700 text-xs md:text-sm font-semibold rounded-full transition-all shadow-lg">
                                             📦 Archive
                                         </button>
                                     )}
-                                    <button onClick={exportSelected} className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 text-sm font-semibold rounded-full transition-all shadow-lg">
-                                        💾 Export JSON
-                                    </button>
-                                    <button onClick={deleteSelected} className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 text-sm font-semibold rounded-full transition-all shadow-lg">
+                                    <button onClick={exportSelected} className="flex-1 md:flex-none px-3 md:px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 text-xs md:text-sm font-semibold rounded-full transition-all shadow-lg">
+                                        💾 Export
+                                        </button>
+                                    <button onClick={deleteSelected} className="flex-1 md:flex-none px-3 md:px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 text-xs md:text-sm font-semibold rounded-full transition-all shadow-lg">
                                         🗑️ Delete
                                     </button>
-                                    <button onClick={() => setSelectedArticles(new Set())} className="px-4 py-2 bg-gray-700 text-white hover:bg-gray-600 text-sm font-semibold rounded-full transition-all shadow-lg">
-                                        Clear Selection
+                                    <button onClick={() => setSelectedArticles(new Set())} className="w-full md:w-auto px-3 md:px-4 py-2 bg-gray-700 text-white hover:bg-gray-600 text-xs md:text-sm font-semibold rounded-full transition-all shadow-lg">
+                                        Clear
                                     </button>
                                 </div>
                             </div>
@@ -1859,14 +1608,14 @@
 
                         {/* Articles Display */}
                         {filteredArticles.length === 0 ? (
-                            <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-16 text-center rounded-3xl backdrop-blur-sm shadow-2xl">
-                                <div className="text-7xl mb-6 opacity-50">{showArchive ? '📦' : '📚'}</div>
-                                <h3 className="text-3xl font-bold text-white mb-3">{showArchive ? 'No Archived Articles' : 'No Articles Yet'}</h3>
-                                <p className="text-blue-400 text-lg font-medium mb-6">
-                                    {showArchive ? 'Archive articles to organize them by month' : 'Start building your knowledge base!'}
+                            <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-8 md:p-16 text-center rounded-2xl md:rounded-3xl backdrop-blur-sm shadow-2xl">
+                                <div className="text-5xl md:text-7xl mb-4 md:mb-6 opacity-50">{showArchive ? '📦' : '📚'}</div>
+                                <h3 className="text-2xl md:text-3xl font-bold text-white mb-2 md:mb-3">{showArchive ? 'No Archived Articles' : 'No Articles Yet'}</h3>
+                                <p className="text-blue-400 text-base md:text-lg font-medium mb-4 md:mb-6">
+                                    {showArchive ? 'Archive articles to organize them' : 'Start building your knowledge base!'}
                                 </p>
-                                {!showArchive && (
-                                    <div className="flex gap-3 justify-center flex-wrap">
+                                {!showArchive && user && (
+                                    <div className="flex flex-col md:flex-row gap-3 justify-center">
                                         <button 
                                             onClick={() => setShowWebSearch(true)}
                                             className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg"
@@ -1883,51 +1632,44 @@
                                 )}
                             </div>
                         ) : showArchive ? (
-                            /* Archive View - Grouped by Month/Year */
-                            <div className="space-y-6">
-                                {/* Archive Controls */}
-                                <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-4 rounded-2xl backdrop-blur-sm shadow-xl">
-                                    <div className="flex items-center justify-between">
-                                        <h2 className="text-white font-bold text-xl">📦 Archive ({articles.filter(a => a.archived).length} articles)</h2>
+                            /* Archive View - Mobile Optimized */
+                            <div className="space-y-4 md:space-y-6">
+                                <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-3 md:p-4 rounded-xl md:rounded-2xl backdrop-blur-sm shadow-xl">
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                                        <h2 className="text-white font-bold text-lg md:text-xl">📦 Archive ({articles.filter(a => a.archived).length})</h2>
                                         <div className="flex gap-2">
                                             <button
                                                 onClick={() => setArchiveGroupBy('month')}
-                                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
-                                                    archiveGroupBy === 'month' 
-                                                        ? 'bg-blue-500 text-white' 
-                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                className={`flex-1 md:flex-none px-3 md:px-4 py-2 text-xs md:text-sm font-semibold rounded-lg transition-all ${
+                                                    archiveGroupBy === 'month' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                                                 }`}
                                             >
-                                                📅 By Month
+                                                📅 Month
                                             </button>
                                             <button
                                                 onClick={() => setArchiveGroupBy('year')}
-                                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
-                                                    archiveGroupBy === 'year' 
-                                                        ? 'bg-blue-500 text-white' 
-                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                className={`flex-1 md:flex-none px-3 md:px-4 py-2 text-xs md:text-sm font-semibold rounded-lg transition-all ${
+                                                    archiveGroupBy === 'year' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                                                 }`}
                                             >
-                                                📆 By Year
+                                                📆 Year
                                             </button>
                                         </div>
                                     </div>
                                 </div>
                                 
-                                {/* Grouped Archive Articles */}
                                 {getArchiveGroups().map(([period, periodArticles]) => (
-                                    <div key={period} className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-5 rounded-2xl backdrop-blur-sm shadow-xl">
-                                        <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
+                                    <div key={period} className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-3 md:p-5 rounded-xl md:rounded-2xl backdrop-blur-sm shadow-xl">
+                                        <h3 className="text-white font-bold text-base md:text-lg mb-3 md:mb-4 flex items-center gap-2">
                                             <span>{archiveGroupBy === 'month' ? '📅' : '📆'}</span>
                                             {period}
-                                            <span className="text-sm text-gray-400 font-normal">({periodArticles.length} articles)</span>
+                                            <span className="text-xs md:text-sm text-gray-400 font-normal">({periodArticles.length})</span>
                                         </h3>
                                         
-                                        <div className={view === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-3'}>
+                                        <div className={view === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4' : 'space-y-3'}>
                                             {periodArticles.map(article => (
                                                 view === 'grid' ? (
-                                                    /* Grid View Card */
-                                                    <div key={article.id} className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 border border-gray-700/50 overflow-hidden rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.02]">
+                                                    <div key={article.id} className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 border border-gray-700/50 overflow-hidden rounded-xl md:rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.02]">
                                                         <div className="relative aspect-video">
                                                             <img 
                                                                 src={article.imageUrl} 
@@ -1941,9 +1683,9 @@
                                                                 📦 Archived
                                                             </div>
                                                         </div>
-                                                        <div className="p-4">
-                                                            <h3 className="text-white font-bold text-lg mb-2 line-clamp-2">{article.title}</h3>
-                                                            <p className="text-gray-300 text-sm mb-3 line-clamp-2">{article.description}</p>
+                                                        <div className="p-3 md:p-4">
+                                                            <h3 className="text-white font-bold text-sm md:text-lg mb-2 line-clamp-2">{article.title}</h3>
+                                                            <p className="text-gray-300 text-xs md:text-sm mb-3 line-clamp-2">{article.description}</p>
                                                             
                                                             <div className="flex items-center gap-2 mb-3 text-xs text-gray-400">
                                                                 <span>📅 {new Date(article.dateAdded).toLocaleDateString()}</span>
@@ -1958,7 +1700,7 @@
                                                                     href={article.url} 
                                                                     target="_blank" 
                                                                     rel="noopener noreferrer"
-                                                                    className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm text-center rounded-xl font-semibold transition-all"
+                                                                    className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-xs md:text-sm text-center rounded-xl font-semibold transition-all"
                                                                 >
                                                                     🔗 Read
                                                                 </a>
@@ -1966,14 +1708,14 @@
                                                                     <>
                                                                         <button 
                                                                             onClick={() => unarchiveArticle(article.id)} 
-                                                                            className="w-12 h-10 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
-                                                                            title="Restore from Archive"
+                                                                            className="w-10 h-10 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
+                                                                            title="Restore"
                                                                         >
                                                                             ↩️
                                                                         </button>
                                                                         <button 
                                                                             onClick={() => deleteSingleArticle(article.id)} 
-                                                                            className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
+                                                                            className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
                                                                             title="Delete"
                                                                         >
                                                                             🗑️
@@ -1984,52 +1726,35 @@
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    /* List View Row */
-                                                    <div key={article.id} className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 border border-gray-700/50 flex items-center p-4 rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.01]">
+                                                    <div key={article.id} className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 border border-gray-700/50 flex items-center p-3 md:p-4 rounded-xl md:rounded-2xl shadow-xl backdrop-blur-sm transition-all">
                                                         <img 
                                                             src={article.imageUrl} 
                                                             alt={article.title} 
-                                                            className="w-32 h-20 object-cover flex-shrink-0 rounded-xl shadow-lg"
+                                                            className="w-20 h-16 md:w-32 md:h-20 object-cover flex-shrink-0 rounded-lg md:rounded-xl shadow-lg"
                                                             onError={(e) => {
                                                                 e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
                                                             }}
                                                         />
-                                                        <div className="flex-1 ml-4 min-w-0">
-                                                            <p className="font-bold text-white truncate text-lg">{article.title}</p>
-                                                            <p className="text-sm text-gray-300 truncate">{article.description}</p>
+                                                        <div className="flex-1 ml-3 md:ml-4 min-w-0">
+                                                            <p className="font-bold text-white truncate text-sm md:text-lg">{article.title}</p>
+                                                            <p className="text-xs md:text-sm text-gray-300 truncate">{article.description}</p>
                                                             <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
                                                                 <span>📅 {new Date(article.dateAdded).toLocaleDateString()}</span>
-                                                                <span>•</span>
-                                                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">
-                                                                    {article.category}
-                                                                </span>
-                                                                <span>•</span>
-                                                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded-full">
-                                                                    📦 Archived
-                                                                </span>
                                                             </div>
                                                         </div>
-                                                        <div className="flex gap-2 flex-shrink-0 items-center ml-4">
-                                                            <a 
-                                                                href={article.url} 
-                                                                target="_blank" 
-                                                                rel="noopener noreferrer"
-                                                                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm font-semibold rounded-xl transition-all"
-                                                            >
-                                                                🔗 Read
-                                                            </a>
+                                                        <div className="flex gap-2 flex-shrink-0 items-center ml-3 md:ml-4">
                                                             {user && (
                                                                 <>
                                                                     <button 
                                                                         onClick={() => unarchiveArticle(article.id)} 
-                                                                        className="w-10 h-10 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg flex items-center justify-center transition-all" 
+                                                                        className="w-10 h-10 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg flex items-center justify-center transition-all text-sm" 
                                                                         title="Restore"
                                                                     >
                                                                         ↩️
                                                                     </button>
                                                                     <button 
                                                                         onClick={() => deleteSingleArticle(article.id)} 
-                                                                        className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" 
+                                                                        className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all text-sm" 
                                                                         title="Delete"
                                                                     >
                                                                         🗑️
@@ -2045,9 +1770,9 @@
                                 ))}
                             </div>
                         ) : view === 'grid' ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
                                 {filteredArticles.map(article => (
-                                    <div key={article.id} className={`bg-gradient-to-br from-gray-900/90 to-gray-800/90 border overflow-hidden rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.02] ${selectedArticles.has(article.id) ? 'ring-4 ring-blue-500 border-blue-500/50' : 'border-gray-700/50'}`}>
+                                    <div key={article.id} className={`bg-gradient-to-br from-gray-900/90 to-gray-800/90 border overflow-hidden rounded-xl md:rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.02] ${selectedArticles.has(article.id) ? 'ring-4 ring-blue-500 border-blue-500/50' : 'border-gray-700/50'}`}>
                                         <div className="relative aspect-video">
                                             <img 
                                                 src={article.imageUrl} 
@@ -2061,25 +1786,22 @@
                                             <button onClick={() => toggleFavorite(article.id)} className="absolute top-3 right-3 w-10 h-10 bg-black/60 hover:bg-black/80 backdrop-blur-sm rounded-full flex items-center justify-center text-xl transition-all shadow-lg">
                                                 {article.favorite ? '⭐' : '☆'}
                                             </button>
-                                            <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 text-xs text-white rounded-md backdrop-blur-sm">
-                                                {article.source || 'Web'}
-                                            </div>
                                         </div>
-                                        <div className="p-4">
-                                            <h3 className="text-white font-bold text-lg mb-2 line-clamp-2">{article.title}</h3>
-                                            <p className="text-gray-300 text-sm mb-3 line-clamp-2">{article.description}</p>
+                                        <div className="p-3 md:p-4">
+                                            <h3 className="text-white font-bold text-sm md:text-lg mb-2 line-clamp-2">{article.title}</h3>
+                                            <p className="text-gray-300 text-xs md:text-sm mb-3 line-clamp-2">{article.description}</p>
                                             
                                             <div className="flex items-center gap-2 mb-3 text-xs text-gray-400">
                                                 <span>📅 {new Date(article.dateAdded).toLocaleDateString()}</span>
                                                 <span>•</span>
-                                                <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full">
+                                                <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full truncate">
                                                     {article.category}
                                                 </span>
                                             </div>
                                             
                                             {user && (
                                                 <div className="flex gap-2 mb-3">
-                                                    <select value={article.category} onChange={(e) => moveToCategory(article.id, e.target.value)} className="flex-1 px-3 py-2 text-xs bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md">
+                                                    <select value={article.category} onChange={(e) => moveToCategory(article.id, e.target.value)} className="flex-1 px-2 md:px-3 py-2 text-xs bg-gray-800/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md">
                                                         {categories.map(cat => (
                                                             <option key={cat} value={cat}>{cat}</option>
                                                         ))}
@@ -2092,13 +1814,13 @@
                                                     href={article.url} 
                                                     target="_blank" 
                                                     rel="noopener noreferrer"
-                                                    className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm text-center rounded-xl font-semibold transition-all"
+                                                    className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-xs md:text-sm text-center rounded-xl font-semibold transition-all"
                                                 >
                                                     🔗 Read
                                                 </a>
                                                 <button 
                                                     onClick={() => setShowNotes(showNotes === article.id ? null : article.id)} 
-                                                    className={`w-12 h-10 ${showNotes === article.id ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gray-800/80 hover:bg-gray-700/80'} text-white rounded-xl shadow-md flex items-center justify-center transition-all relative`}
+                                                    className={`w-10 h-10 ${showNotes === article.id ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gray-800/80 hover:bg-gray-700/80'} text-white rounded-xl shadow-md flex items-center justify-center transition-all relative`}
                                                     title="Notes"
                                                 >
                                                     📝
@@ -2112,12 +1834,12 @@
                                                     <>
                                                         <button 
                                                             onClick={() => archiveSingleArticle(article.id)} 
-                                                            className="w-12 h-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
+                                                            className="w-10 h-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
                                                             title="Archive"
                                                         >
                                                             📦
                                                         </button>
-                                                        <button onClick={() => deleteSingleArticle(article.id)} className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" title="Delete">
+                                                        <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" title="Delete">
                                                             🗑️
                                                         </button>
                                                     </>
@@ -2126,9 +1848,9 @@
                                         </div>
                                         
                                         {showNotes === article.id && (
-                                            <div className="p-4 bg-gray-800/90 border-t border-gray-700/50 backdrop-blur-sm">
-                                                <h4 className="text-white font-bold mb-2 text-sm flex items-center gap-1">
-                                                    <span className="text-lg">📝</span> Notes & Highlights
+                                            <div className="p-3 md:p-4 bg-gray-800/90 border-t border-gray-700/50 backdrop-blur-sm">
+                                                <h4 className="text-white font-bold mb-2 text-xs md:text-sm flex items-center gap-1">
+                                                    <span className="text-base md:text-lg">📝</span> Notes
                                                 </h4>
                                                 
                                                 <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
@@ -2148,7 +1870,7 @@
                                                                         </button>
                                                                     )}
                                                                 </div>
-                                                                <p className="text-white text-sm leading-relaxed">{note.text}</p>
+                                                                <p className="text-white text-xs md:text-sm leading-relaxed">{note.text}</p>
                                                             </div>
                                                         ))
                                                     ) : (
@@ -2162,23 +1884,17 @@
                                                             type="text" 
                                                             value={showNotes === article.id ? newNote : ''} 
                                                             onChange={(e) => setNewNote(e.target.value)}
-                                                            placeholder="Add a note or highlight..." 
+                                                            placeholder="Add a note..." 
                                                             className="flex-1 px-3 py-2 text-xs bg-gray-900/80 text-white border border-gray-700/50 outline-none rounded-xl backdrop-blur-sm font-medium shadow-md focus:border-blue-500/50 transition-all"
                                                             onKeyPress={(e) => e.key === 'Enter' && addNote(article.id)}
                                                         />
                                                         <button 
                                                             onClick={() => addNote(article.id)} 
-                                                            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-xs hover:from-blue-600 hover:to-purple-700 rounded-xl font-semibold shadow-md transition-all"
+                                                            className="px-3 md:px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-xs hover:from-blue-600 hover:to-purple-700 rounded-xl font-semibold shadow-md transition-all"
                                                         >
                                                             ➕
                                                         </button>
                                                     </div>
-                                                )}
-                                                
-                                                {!user && (
-                                                    <p className="text-gray-400 text-xs text-center mt-2">
-                                                        🔐 Sign in to add notes
-                                                    </p>
                                                 )}
                                             </div>
                                         )}
@@ -2188,46 +1904,38 @@
                         ) : (
                             <div className="space-y-3">
                                 {filteredArticles.map(article => (
-                                    <div key={article.id} className={`bg-gradient-to-br from-gray-900/90 to-gray-800/90 border flex items-center p-4 rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.01] ${selectedArticles.has(article.id) ? 'ring-4 ring-blue-500 border-blue-500/50' : 'border-gray-700/50'}`}>
-                                        <input type="checkbox" checked={selectedArticles.has(article.id)} onChange={() => toggleArticleSelection(article.id)} className="w-6 h-6 mr-4 flex-shrink-0 cursor-pointer rounded-md accent-blue-500"/>
+                                    <div key={article.id} className={`bg-gradient-to-br from-gray-900/90 to-gray-800/90 border flex items-center p-3 md:p-4 rounded-xl md:rounded-2xl shadow-xl backdrop-blur-sm transition-all ${selectedArticles.has(article.id) ? 'ring-4 ring-blue-500 border-blue-500/50' : 'border-gray-700/50'}`}>
+                                        <input type="checkbox" checked={selectedArticles.has(article.id)} onChange={() => toggleArticleSelection(article.id)} className="w-5 h-5 md:w-6 md:h-6 mr-3 md:mr-4 flex-shrink-0 cursor-pointer rounded-md accent-blue-500"/>
                                         <img 
                                             src={article.imageUrl} 
                                             alt={article.title} 
-                                            className="w-32 h-20 object-cover flex-shrink-0 rounded-xl shadow-lg"
+                                            className="w-20 h-16 md:w-32 md:h-20 object-cover flex-shrink-0 rounded-lg md:rounded-xl shadow-lg"
                                             onError={(e) => {
                                                 e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
                                             }}
                                         />
-                                        <div className="flex-1 ml-4 min-w-0">
-                                            <p className="font-bold text-white truncate text-lg">{article.title}</p>
-                                            <p className="text-sm text-gray-300 truncate">{article.description}</p>
+                                        <div className="flex-1 ml-3 md:ml-4 min-w-0">
+                                            <p className="font-bold text-white truncate text-sm md:text-lg">{article.title}</p>
+                                            <p className="text-xs md:text-sm text-gray-300 truncate">{article.description}</p>
                                             <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
                                                 <span>📅 {new Date(article.dateAdded).toLocaleDateString()}</span>
                                                 <span>•</span>
-                                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">
+                                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full truncate max-w-[100px]">
                                                     {article.category}
                                                 </span>
                                             </div>
                                         </div>
-                                        <div className="flex gap-2 flex-shrink-0 items-center ml-4">
-                                            <a 
-                                                href={article.url} 
-                                                target="_blank" 
-                                                rel="noopener noreferrer"
-                                                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm font-semibold rounded-xl transition-all"
-                                            >
-                                                🔗 Read
-                                            </a>
+                                        <div className="flex gap-2 flex-shrink-0 items-center ml-3 md:ml-4">
                                             {user && (
                                                 <>
                                                     <button 
                                                         onClick={() => archiveSingleArticle(article.id)} 
-                                                        className="w-10 h-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 rounded-full shadow-lg flex items-center justify-center transition-all" 
+                                                        className="w-10 h-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 rounded-full shadow-lg flex items-center justify-center transition-all text-sm" 
                                                         title="Archive"
                                                     >
                                                         📦
                                                     </button>
-                                                    <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" title="Delete">
+                                                    <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all text-sm" title="Delete">
                                                         🗑️
                                                     </button>
                                                 </>
@@ -2243,13 +1951,13 @@
                     </div>
                     
                     {/* Footer */}
-                    <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-                        <p className="text-gray-500 text-sm">
-                            🧠 Machine Learning Architecture Hub • Built with React & Firebase
+                    <div className="max-w-7xl mx-auto px-3 md:px-4 py-6 md:py-8 text-center">
+                        <p className="text-gray-500 text-xs md:text-sm">
+                            🏗️ Architecture & AI Hub • Built with React & Firebase
                         </p>
                         {!firebaseInitialized && (
                             <p className="text-yellow-400 text-xs mt-2">
-                                ⚠️ Firebase not connected - Check console for errors
+                                ⚠️ Firebase not connected
                             </p>
                         )}
                     </div>
