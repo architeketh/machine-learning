@@ -55,6 +55,8 @@
             const [sortBy, setSortBy] = useState('date-desc');
             const [categories, setCategories] = useState(['Machine Learning', 'AI', 'Architecture', 'Deep Learning', 'Computer Vision', 'Neural Networks', 'NLP']);
             const [selectedCategory, setSelectedCategory] = useState('All Articles');
+            const [showArchive, setShowArchive] = useState(false);
+            const [archiveGroupBy, setArchiveGroupBy] = useState('month'); // 'month' or 'year'
             const [searchTerm, setSearchTerm] = useState('');
             const [showNewCategory, setShowNewCategory] = useState(false);
             const [newCategoryName, setNewCategoryName] = useState('');
@@ -986,6 +988,105 @@
                 setDebugInfo('✅ Articles exported');
             };
 
+            const archiveSelected = async () => {
+                if (!user) {
+                    alert('Please sign in to archive articles');
+                    return;
+                }
+                
+                if (selectedArticles.size === 0) {
+                    alert('Please select articles to archive');
+                    return;
+                }
+                
+                if (confirm(`Archive ${selectedArticles.size} selected articles?`)) {
+                    setDebugInfo('📦 Archiving articles...');
+                    
+                    for (const articleId of selectedArticles) {
+                        await updateArticleInFirebase(articleId, { 
+                            archived: true,
+                            archivedDate: new Date().toISOString()
+                        });
+                    }
+                    
+                    const updatedArticles = articles.map(a => 
+                        selectedArticles.has(a.id) 
+                            ? { ...a, archived: true, archivedDate: new Date().toISOString() }
+                            : a
+                    );
+                    setArticles(updatedArticles);
+                    setSelectedArticles(new Set());
+                    setDebugInfo('✅ Articles archived');
+                }
+            };
+
+            const archiveSingleArticle = async (articleId) => {
+                if (!user) {
+                    alert('Please sign in to archive articles');
+                    return;
+                }
+                
+                await updateArticleInFirebase(articleId, { 
+                    archived: true,
+                    archivedDate: new Date().toISOString()
+                });
+                
+                const updatedArticles = articles.map(a => 
+                    a.id === articleId ? { ...a, archived: true, archivedDate: new Date().toISOString() } : a
+                );
+                setArticles(updatedArticles);
+                setDebugInfo('✅ Article archived');
+            };
+
+            const unarchiveArticle = async (articleId) => {
+                if (!user) {
+                    alert('Please sign in to unarchive articles');
+                    return;
+                }
+                
+                await updateArticleInFirebase(articleId, { 
+                    archived: false,
+                    archivedDate: null
+                });
+                
+                const updatedArticles = articles.map(a => 
+                    a.id === articleId ? { ...a, archived: false, archivedDate: null } : a
+                );
+                setArticles(updatedArticles);
+                setDebugInfo('✅ Article restored from archive');
+            };
+
+            const getArchiveGroups = () => {
+                const archived = articles.filter(a => a.archived);
+                const groups = {};
+                
+                archived.forEach(article => {
+                    const date = new Date(article.archivedDate || article.dateAdded);
+                    let key;
+                    
+                    if (archiveGroupBy === 'month') {
+                        const month = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                        key = month;
+                    } else {
+                        key = date.getFullYear().toString();
+                    }
+                    
+                    if (!groups[key]) {
+                        groups[key] = [];
+                    }
+                    groups[key].push(article);
+                });
+                
+                // Sort groups by date (newest first)
+                const sortedGroups = Object.entries(groups).sort((a, b) => {
+                    const dateA = new Date(groups[a[0]][0].archivedDate || groups[a[0]][0].dateAdded);
+                    const dateB = new Date(groups[b[0]][0].archivedDate || groups[b[0]][0].dateAdded);
+                    return dateB - dateA;
+                });
+                
+                return sortedGroups;
+            };
+
             const sortArticles = (articlesToSort) => {
                 const sorted = [...articlesToSort];
                 switch(sortBy) {
@@ -1005,6 +1106,16 @@
             };
 
             const filteredArticles = sortArticles(articles.filter(article => {
+                // Hide archived articles from main view
+                if (article.archived && !showArchive) {
+                    return false;
+                }
+                
+                // In archive view, only show archived articles
+                if (showArchive && !article.archived) {
+                    return false;
+                }
+                
                 const matchesSearch = article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                     article.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                     article.category?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -1668,17 +1779,24 @@
                                 <h3 className="text-xs font-bold text-blue-400 uppercase tracking-wider mr-2">Categories</h3>
                                 
                                 <button 
-                                    onClick={() => setSelectedCategory('All Articles')} 
-                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === 'All Articles' ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                    onClick={() => { setSelectedCategory('All Articles'); setShowArchive(false); }} 
+                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === 'All Articles' && !showArchive ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                 >
-                                    📚 All ({articles.length})
+                                    📚 All ({articles.filter(a => !a.archived).length})
                                 </button>
                                 
                                 <button 
-                                    onClick={() => setSelectedCategory('Favorites')} 
-                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === 'Favorites' ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                    onClick={() => { setSelectedCategory('Favorites'); setShowArchive(false); }} 
+                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === 'Favorites' && !showArchive ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                 >
-                                    ⭐ Favorites ({articles.filter(a => a.favorite).length})
+                                    ⭐ Favorites ({articles.filter(a => a.favorite && !a.archived).length})
+                                </button>
+                                
+                                <button 
+                                    onClick={() => { setShowArchive(true); setSelectedCategory('All Articles'); }} 
+                                    className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${showArchive ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                >
+                                    📦 Archive ({articles.filter(a => a.archived).length})
                                 </button>
                                 
                                 <div className="w-px h-6 bg-gray-600/50"></div>
@@ -1686,10 +1804,10 @@
                                 {[...categories].sort((a, b) => a.localeCompare(b)).map(category => (
                                     <div key={category} className="flex items-center group">
                                         <button 
-                                            onClick={() => setSelectedCategory(category)} 
-                                            className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === category ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
+                                            onClick={() => { setSelectedCategory(category); setShowArchive(false); }} 
+                                            className={`px-4 py-2 whitespace-nowrap font-semibold text-sm rounded-full transition-all shadow-md ${selectedCategory === category && !showArchive ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white scale-105 shadow-lg' : 'bg-gray-800/60 text-gray-300 hover:bg-gray-700/60'}`}
                                         >
-                                            📂 {category} ({articles.filter(a => a.category === category).length})
+                                            📂 {category} ({articles.filter(a => a.category === category && !a.archived).length})
                                         </button>
                                         {user && (
                                             <button 
@@ -1721,6 +1839,11 @@
                             <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/80 border border-blue-500/30 p-4 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 rounded-2xl backdrop-blur-md shadow-2xl">
                                 <span className="text-white font-bold text-lg">{selectedArticles.size} Selected</span>
                                 <div className="flex flex-wrap gap-2">
+                                    {!showArchive && (
+                                        <button onClick={archiveSelected} className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-600 hover:to-orange-700 text-sm font-semibold rounded-full transition-all shadow-lg">
+                                            📦 Archive
+                                        </button>
+                                    )}
                                     <button onClick={exportSelected} className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 text-sm font-semibold rounded-full transition-all shadow-lg">
                                         💾 Export JSON
                                     </button>
@@ -1737,23 +1860,189 @@
                         {/* Articles Display */}
                         {filteredArticles.length === 0 ? (
                             <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-16 text-center rounded-3xl backdrop-blur-sm shadow-2xl">
-                                <div className="text-7xl mb-6 opacity-50">📚</div>
-                                <h3 className="text-3xl font-bold text-white mb-3">No Articles Yet</h3>
-                                <p className="text-blue-400 text-lg font-medium mb-6">Start building your knowledge base!</p>
-                                <div className="flex gap-3 justify-center flex-wrap">
-                                    <button 
-                                        onClick={() => setShowWebSearch(true)}
-                                        className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg"
-                                    >
-                                        🔍 Search Articles
-                                    </button>
-                                    <button 
-                                        onClick={() => setShowAddArticle(true)}
-                                        className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-xl hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
-                                    >
-                                        ➕ Add Manually
-                                    </button>
+                                <div className="text-7xl mb-6 opacity-50">{showArchive ? '📦' : '📚'}</div>
+                                <h3 className="text-3xl font-bold text-white mb-3">{showArchive ? 'No Archived Articles' : 'No Articles Yet'}</h3>
+                                <p className="text-blue-400 text-lg font-medium mb-6">
+                                    {showArchive ? 'Archive articles to organize them by month' : 'Start building your knowledge base!'}
+                                </p>
+                                {!showArchive && (
+                                    <div className="flex gap-3 justify-center flex-wrap">
+                                        <button 
+                                            onClick={() => setShowWebSearch(true)}
+                                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg"
+                                        >
+                                            🔍 Search Articles
+                                        </button>
+                                        <button 
+                                            onClick={() => setShowAddArticle(true)}
+                                            className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold rounded-xl hover:from-green-600 hover:to-green-700 transition-all shadow-lg"
+                                        >
+                                            ➕ Add Manually
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ) : showArchive ? (
+                            /* Archive View - Grouped by Month/Year */
+                            <div className="space-y-6">
+                                {/* Archive Controls */}
+                                <div className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-4 rounded-2xl backdrop-blur-sm shadow-xl">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="text-white font-bold text-xl">📦 Archive ({articles.filter(a => a.archived).length} articles)</h2>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setArchiveGroupBy('month')}
+                                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+                                                    archiveGroupBy === 'month' 
+                                                        ? 'bg-blue-500 text-white' 
+                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                }`}
+                                            >
+                                                📅 By Month
+                                            </button>
+                                            <button
+                                                onClick={() => setArchiveGroupBy('year')}
+                                                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+                                                    archiveGroupBy === 'year' 
+                                                        ? 'bg-blue-500 text-white' 
+                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                }`}
+                                            >
+                                                📆 By Year
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
+                                
+                                {/* Grouped Archive Articles */}
+                                {getArchiveGroups().map(([period, periodArticles]) => (
+                                    <div key={period} className="bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-700/50 p-5 rounded-2xl backdrop-blur-sm shadow-xl">
+                                        <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
+                                            <span>{archiveGroupBy === 'month' ? '📅' : '📆'}</span>
+                                            {period}
+                                            <span className="text-sm text-gray-400 font-normal">({periodArticles.length} articles)</span>
+                                        </h3>
+                                        
+                                        <div className={view === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-3'}>
+                                            {periodArticles.map(article => (
+                                                view === 'grid' ? (
+                                                    /* Grid View Card */
+                                                    <div key={article.id} className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 border border-gray-700/50 overflow-hidden rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.02]">
+                                                        <div className="relative aspect-video">
+                                                            <img 
+                                                                src={article.imageUrl} 
+                                                                alt={article.title} 
+                                                                className="w-full h-full object-cover"
+                                                                onError={(e) => {
+                                                                    e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
+                                                                }}
+                                                            />
+                                                            <div className="absolute top-2 left-2 px-2 py-1 bg-amber-500/80 text-white text-xs rounded-md backdrop-blur-sm font-semibold">
+                                                                📦 Archived
+                                                            </div>
+                                                        </div>
+                                                        <div className="p-4">
+                                                            <h3 className="text-white font-bold text-lg mb-2 line-clamp-2">{article.title}</h3>
+                                                            <p className="text-gray-300 text-sm mb-3 line-clamp-2">{article.description}</p>
+                                                            
+                                                            <div className="flex items-center gap-2 mb-3 text-xs text-gray-400">
+                                                                <span>📅 {new Date(article.dateAdded).toLocaleDateString()}</span>
+                                                                <span>•</span>
+                                                                <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full">
+                                                                    {article.category}
+                                                                </span>
+                                                            </div>
+                                                            
+                                                            <div className="flex gap-2">
+                                                                <a 
+                                                                    href={article.url} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer"
+                                                                    className="flex-1 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm text-center rounded-xl font-semibold transition-all"
+                                                                >
+                                                                    🔗 Read
+                                                                </a>
+                                                                {user && (
+                                                                    <>
+                                                                        <button 
+                                                                            onClick={() => unarchiveArticle(article.id)} 
+                                                                            className="w-12 h-10 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
+                                                                            title="Restore from Archive"
+                                                                        >
+                                                                            ↩️
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => deleteSingleArticle(article.id)} 
+                                                                            className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
+                                                                            title="Delete"
+                                                                        >
+                                                                            🗑️
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    /* List View Row */
+                                                    <div key={article.id} className="bg-gradient-to-br from-gray-900/90 to-gray-800/90 border border-gray-700/50 flex items-center p-4 rounded-2xl shadow-xl backdrop-blur-sm transition-all hover:scale-[1.01]">
+                                                        <img 
+                                                            src={article.imageUrl} 
+                                                            alt={article.title} 
+                                                            className="w-32 h-20 object-cover flex-shrink-0 rounded-xl shadow-lg"
+                                                            onError={(e) => {
+                                                                e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
+                                                            }}
+                                                        />
+                                                        <div className="flex-1 ml-4 min-w-0">
+                                                            <p className="font-bold text-white truncate text-lg">{article.title}</p>
+                                                            <p className="text-sm text-gray-300 truncate">{article.description}</p>
+                                                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+                                                                <span>📅 {new Date(article.dateAdded).toLocaleDateString()}</span>
+                                                                <span>•</span>
+                                                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">
+                                                                    {article.category}
+                                                                </span>
+                                                                <span>•</span>
+                                                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded-full">
+                                                                    📦 Archived
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2 flex-shrink-0 items-center ml-4">
+                                                            <a 
+                                                                href={article.url} 
+                                                                target="_blank" 
+                                                                rel="noopener noreferrer"
+                                                                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm font-semibold rounded-xl transition-all"
+                                                            >
+                                                                🔗 Read
+                                                            </a>
+                                                            {user && (
+                                                                <>
+                                                                    <button 
+                                                                        onClick={() => unarchiveArticle(article.id)} 
+                                                                        className="w-10 h-10 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 rounded-full shadow-lg flex items-center justify-center transition-all" 
+                                                                        title="Restore"
+                                                                    >
+                                                                        ↩️
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => deleteSingleArticle(article.id)} 
+                                                                        className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" 
+                                                                        title="Delete"
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         ) : view === 'grid' ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1820,9 +2109,18 @@
                                                     )}
                                                 </button>
                                                 {user && (
-                                                    <button onClick={() => deleteSingleArticle(article.id)} className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" title="Delete">
-                                                        🗑️
-                                                    </button>
+                                                    <>
+                                                        <button 
+                                                            onClick={() => archiveSingleArticle(article.id)} 
+                                                            className="w-12 h-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" 
+                                                            title="Archive"
+                                                        >
+                                                            📦
+                                                        </button>
+                                                        <button onClick={() => deleteSingleArticle(article.id)} className="w-12 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl shadow-md flex items-center justify-center transition-all" title="Delete">
+                                                            🗑️
+                                                        </button>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -1921,9 +2219,18 @@
                                                 🔗 Read
                                             </a>
                                             {user && (
-                                                <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" title="Delete">
-                                                    🗑️
-                                                </button>
+                                                <>
+                                                    <button 
+                                                        onClick={() => archiveSingleArticle(article.id)} 
+                                                        className="w-10 h-10 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 rounded-full shadow-lg flex items-center justify-center transition-all" 
+                                                        title="Archive"
+                                                    >
+                                                        📦
+                                                    </button>
+                                                    <button onClick={() => deleteSingleArticle(article.id)} className="w-10 h-10 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 rounded-full shadow-lg flex items-center justify-center transition-all" title="Delete">
+                                                        🗑️
+                                                    </button>
+                                                </>
                                             )}
                                             <button onClick={() => toggleFavorite(article.id)} className="w-10 h-10 bg-gray-800/80 hover:bg-gray-700/80 rounded-full shadow-lg flex items-center justify-center text-xl transition-all backdrop-blur-sm">
                                                 {article.favorite ? '⭐' : '☆'}
