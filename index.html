@@ -43,6 +43,16 @@
                 min-height: 44px;
             }
         }
+        
+        /* Draggable modal cursor */
+        .draggable-header {
+            cursor: move;
+            user-select: none;
+        }
+        
+        .draggable-header:active {
+            cursor: grabbing;
+        }
     </style>
 </head>
 <body>
@@ -93,9 +103,6 @@
             const [loading, setLoading] = useState(true);
             const [showAddArticle, setShowAddArticle] = useState(false);
             const [showWebSearch, setShowWebSearch] = useState(false);
-            const [webSearchQuery, setWebSearchQuery] = useState('');
-            const [searchResults, setSearchResults] = useState([]);
-            const [searching, setSearching] = useState(false);
             const [user, setUser] = useState(null);
             const [authLoading, setAuthLoading] = useState(true);
             const [showSourceManager, setShowSourceManager] = useState(false);
@@ -118,6 +125,10 @@
             const [selectedRssArticles, setSelectedRssArticles] = useState(new Set());
             const [addedArticleUrls, setAddedArticleUrls] = useState(new Set());
             const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+            const [modalPosition, setModalPosition] = useState({ x: 0, y: 0 });
+            const [isDragging, setIsDragging] = useState(false);
+            const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+            const modalRef = useRef(null);
             
             // Form for manual article entry
             const [newArticle, setNewArticle] = useState({
@@ -165,6 +176,46 @@
                 }
             }, []);
 
+            // Dragging handlers
+            const handleMouseDown = (e) => {
+                if (isMobile) return; // Disable dragging on mobile
+                setIsDragging(true);
+                setDragStart({
+                    x: e.clientX - modalPosition.x,
+                    y: e.clientY - modalPosition.y
+                });
+            };
+
+            const handleMouseMove = (e) => {
+                if (!isDragging) return;
+                setModalPosition({
+                    x: e.clientX - dragStart.x,
+                    y: e.clientY - dragStart.y
+                });
+            };
+
+            const handleMouseUp = () => {
+                setIsDragging(false);
+            };
+
+            useEffect(() => {
+                if (isDragging) {
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                    return () => {
+                        document.removeEventListener('mousemove', handleMouseMove);
+                        document.removeEventListener('mouseup', handleMouseUp);
+                    };
+                }
+            }, [isDragging, dragStart, modalPosition]);
+
+            // Reset modal position when opening
+            useEffect(() => {
+                if (showWebSearch) {
+                    setModalPosition({ x: 0, y: 0 });
+                }
+            }, [showWebSearch]);
+
             const loadCustomSources = async () => {
                 try {
                     if (!db || !firebaseInitialized) return;
@@ -187,8 +238,8 @@
             };
 
             const addCustomSource = async () => {
-                if (!newSource.name || !newSource.url) {
-                    alert('Please provide both name and URL');
+                if (!newSource.name || !newSource.rss) {
+                    alert('Please provide both name and RSS feed URL');
                     return;
                 }
                 
@@ -442,17 +493,6 @@
                 }
                 
                 setDebugInfo(statusMsg);
-            };
-
-            const searchWebWithSource = (source) => {
-                if (!webSearchQuery.trim()) {
-                    alert('Please enter a search term first');
-                    return;
-                }
-                
-                const searchUrl = `${source.url}${encodeURIComponent(webSearchQuery)}`;
-                window.open(searchUrl, '_blank');
-                setDebugInfo(`🔍 Opened search for "${webSearchQuery}" in ${source.name}`);
             };
 
             const toggleRssArticleSelection = (articleUrl) => {
@@ -992,13 +1032,27 @@
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
-                    {/* Web Search Modal - Mobile Optimized */}
+                    {/* RSS Search Modal - Draggable & Mobile Optimized */}
                     {showWebSearch && (
                         <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-2 md:p-4 overflow-y-auto" onClick={() => setShowWebSearch(false)}>
-                            <div className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl md:rounded-3xl shadow-2xl w-full ${isMobile ? 'h-full' : 'max-w-4xl max-h-[90vh]'} overflow-hidden flex flex-col`} onClick={(e) => e.stopPropagation()}>
-                                <div className="p-4 md:p-6 border-b border-gray-700 flex-shrink-0">
+                            <div 
+                                ref={modalRef}
+                                className={`bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl md:rounded-3xl shadow-2xl w-full ${isMobile ? 'h-full' : 'max-w-5xl max-h-[90vh]'} overflow-hidden flex flex-col`} 
+                                style={!isMobile ? {
+                                    transform: `translate(${modalPosition.x}px, ${modalPosition.y}px)`,
+                                    transition: isDragging ? 'none' : 'transform 0.2s ease-out'
+                                } : {}}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div 
+                                    className={`p-4 md:p-6 border-b border-gray-700 flex-shrink-0 ${!isMobile ? 'draggable-header' : ''}`}
+                                    onMouseDown={handleMouseDown}
+                                >
                                     <div className="flex items-center justify-between mb-4">
-                                        <h2 className="text-xl md:text-2xl font-bold text-white">🔍 Search Articles</h2>
+                                        <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+                                            📰 Browse RSS Feeds
+                                            {!isMobile && <span className="text-sm text-gray-400 font-normal">(drag to move)</span>}
+                                        </h2>
                                         <div className="flex gap-2">
                                             {user && !isMobile && (
                                                 <button 
@@ -1013,41 +1067,16 @@
                                     </div>
                                     
                                     <div className="space-y-3">
-                                        <input 
-                                            type="text" 
-                                            value={webSearchQuery} 
-                                            onChange={(e) => setWebSearchQuery(e.target.value)}
-                                            placeholder="e.g., sustainable architecture, AI design..."
-                                            className="w-full px-4 py-3 bg-gray-700 text-white border border-gray-600 rounded-xl outline-none focus:border-blue-500 transition-all"
-                                        />
-                                        
                                         <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3">
-                                            <p className="text-blue-200 text-sm font-semibold mb-2">💡 How to search:</p>
-                                            <p className="text-blue-100 text-xs mb-2">1. Enter your search term above</p>
-                                            <p className="text-blue-100 text-xs mb-2">2. Click a source below to search that site in a new tab</p>
-                                            <p className="text-blue-100 text-xs">3. Or use RSS feeds to browse latest articles</p>
-                                        </div>
-                                        
-                                        {/* Search Sources */}
-                                        <div className="border-t border-gray-600 pt-3">
-                                            <p className="text-gray-400 text-xs font-semibold mb-2 uppercase">🔍 Search in:</p>
-                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                                {customSources.map((source, index) => (
-                                                    <button
-                                                        key={index}
-                                                        onClick={() => searchWebWithSource(source)}
-                                                        className="px-3 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm rounded-lg transition-all font-medium shadow-md flex items-center justify-center gap-1"
-                                                    >
-                                                        <span>{source.icon}</span>
-                                                        <span className="truncate">{source.name}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
+                                            <p className="text-blue-200 text-sm font-semibold mb-2">💡 How to use:</p>
+                                            <p className="text-blue-100 text-xs mb-2">1. Click "Fetch All" to load all RSS feeds at once</p>
+                                            <p className="text-blue-100 text-xs mb-2">2. Or click individual sources to browse specific feeds</p>
+                                            <p className="text-blue-100 text-xs">3. Select articles and click "Add" to save to your collection</p>
                                         </div>
                                         
                                         {/* RSS Feeds */}
                                         <div className="border-t border-gray-600 pt-3">
-                                            <p className="text-gray-400 text-xs font-semibold mb-2 uppercase">📰 Browse RSS feeds:</p>
+                                            <p className="text-gray-400 text-xs font-semibold mb-2 uppercase">📰 RSS Feeds:</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {customSources.filter(s => s.rss).length > 0 && (
                                                     <button
@@ -1084,27 +1113,30 @@
                                         {showSourceManager && user && (
                                             <div className="p-4 bg-gray-700/50 rounded-xl border border-gray-600">
                                                 <h3 className="text-white font-bold mb-3 flex items-center gap-2">
-                                                    <span>🔗</span> Manage Search Sources
+                                                    <span>🔗</span> Manage RSS Sources
                                                 </h3>
                                                 
                                                 <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
-                                                    {customSources.map((source, index) => (
-                                                        <div key={index} className="flex items-center justify-between bg-gray-800/50 p-2 rounded-lg">
-                                                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                                <span className="text-xl md:text-2xl">{source.icon}</span>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <p className="text-white font-medium text-xs md:text-sm truncate">{source.name}</p>
-                                                                    {source.rss && <p className="text-green-400 text-xs">📰 RSS</p>}
+                                                    {customSources.filter(s => s.rss).map((source, index) => {
+                                                        const originalIndex = customSources.findIndex(s => s === source);
+                                                        return (
+                                                            <div key={index} className="flex items-center justify-between bg-gray-800/50 p-2 rounded-lg">
+                                                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                                    <span className="text-xl md:text-2xl">{source.icon}</span>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <p className="text-white font-medium text-xs md:text-sm truncate">{source.name}</p>
+                                                                        <p className="text-green-400 text-xs">📰 RSS Enabled</p>
+                                                                    </div>
                                                                 </div>
+                                                                <button
+                                                                    onClick={() => removeCustomSource(originalIndex)}
+                                                                    className="px-2 md:px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-all flex-shrink-0"
+                                                                >
+                                                                    Remove
+                                                                </button>
                                                             </div>
-                                                            <button
-                                                                onClick={() => removeCustomSource(index)}
-                                                                className="px-2 md:px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-all flex-shrink-0"
-                                                            >
-                                                                Remove
-                                                            </button>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                                 
                                                 <div className="space-y-2">
@@ -1126,23 +1158,16 @@
                                                     </div>
                                                     <input
                                                         type="url"
-                                                        value={newSource.url}
-                                                        onChange={(e) => setNewSource({...newSource, url: e.target.value})}
-                                                        placeholder="Search URL (e.g., https://site.com/search?q=)"
-                                                        className="w-full px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
-                                                    />
-                                                    <input
-                                                        type="url"
                                                         value={newSource.rss}
                                                         onChange={(e) => setNewSource({...newSource, rss: e.target.value})}
-                                                        placeholder="RSS URL (optional)"
+                                                        placeholder="RSS Feed URL (required)"
                                                         className="w-full px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-lg outline-none"
                                                     />
                                                     <button
                                                         onClick={addCustomSource}
                                                         className="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg transition-all"
                                                     >
-                                                        ➕ Add Source
+                                                        ➕ Add RSS Source
                                                     </button>
                                                 </div>
                                             </div>
@@ -1453,8 +1478,8 @@
                                                 onClick={() => setShowWebSearch(true)} 
                                                 className="flex-1 md:flex-none px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 font-semibold flex items-center justify-center gap-2 rounded-xl transition-all shadow-lg"
                                             >
-                                                <span className="text-xl">🔍</span>
-                                                {isMobile ? 'Search' : 'Search Web'}
+                                                <span className="text-xl">📰</span>
+                                                {isMobile ? 'RSS Feeds' : 'Browse RSS Feeds'}
                                             </button>
                                             <button 
                                                 onClick={() => setShowAddArticle(true)} 
@@ -1620,7 +1645,7 @@
                                             onClick={() => setShowWebSearch(true)}
                                             className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg"
                                         >
-                                            🔍 Search Articles
+                                            📰 Browse RSS Feeds
                                         </button>
                                         <button 
                                             onClick={() => setShowAddArticle(true)}
@@ -1780,7 +1805,7 @@
                                                 className="w-full h-full object-cover"
                                                 onError={(e) => {
                                                     e.target.src = 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=400';
-                                                }}
+                                                                }}
                                             />
                                             <input type="checkbox" checked={selectedArticles.has(article.id)} onChange={() => toggleArticleSelection(article.id)} className="absolute top-3 left-3 w-6 h-6 cursor-pointer rounded-md accent-blue-500"/>
                                             <button onClick={() => toggleFavorite(article.id)} className="absolute top-3 right-3 w-10 h-10 bg-black/60 hover:bg-black/80 backdrop-blur-sm rounded-full flex items-center justify-center text-xl transition-all shadow-lg">
